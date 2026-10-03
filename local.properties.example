@@ -1,0 +1,5 @@
+# Copy to android/local.properties (git-ignored). NEVER commit real secrets.
+# CI alternative: set SUPABASE_URL / SUPABASE_ANON_KEY / GOOGLE_WEB_CLIENT_ID env vars.
+supabase.url=YOUR_SUPABASE_URL
+supabase.anon.key=YOUR_SUPABASE_ANON_KEY
+google.web.client.id=YOUR_GOOGLE_WEB_CLIENT_ID

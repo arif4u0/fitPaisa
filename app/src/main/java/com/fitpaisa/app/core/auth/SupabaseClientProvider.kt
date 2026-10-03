@@ -1,0 +1,46 @@
+package com.fitpaisa.app.core.auth
+
+import com.fitpaisa.app.BuildConfig
+import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.auth.Auth
+import io.github.jan.supabase.createSupabaseClient
+import io.github.jan.supabase.functions.Functions
+import io.github.jan.supabase.postgrest.Postgrest
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Single Supabase client for the app. URL and anon key come from BuildConfig,
+ * which is fed by android/local.properties (git-ignored) or CI env vars.
+ * Real secrets are never hardcoded — see README.
+ *
+ * The client is created lazily (on first use, not at app start) so a missing
+ * or mistyped key can never crash the app on launch. The worst case is a
+ * human-readable error at sign-in time. Values are trimmed to survive
+ * accidental whitespace from copy-paste.
+ */
+@Singleton
+class SupabaseClientProvider @Inject constructor() {
+
+    val client: SupabaseClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        val rawUrl = BuildConfig.SUPABASE_URL.trim().removePrefix("supabase.url=")
+        val cleanUrl = if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) {
+            rawUrl
+        } else {
+            "https://$rawUrl"
+        }
+        createSupabaseClient(
+            supabaseUrl = cleanUrl,
+            supabaseKey = BuildConfig.SUPABASE_ANON_KEY.trim()
+        ) {
+            install(Postgrest)
+            install(Auth)
+            install(Functions)
+        }
+    }
+
+    /** True when real project coordinates are configured (not placeholders). */
+    fun isConfigured(): Boolean =
+        !BuildConfig.SUPABASE_URL.contains("YOUR_SUPABASE") &&
+            !BuildConfig.SUPABASE_ANON_KEY.contains("YOUR_SUPABASE")
+}
