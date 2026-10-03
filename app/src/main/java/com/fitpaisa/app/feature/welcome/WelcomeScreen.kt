@@ -35,7 +35,7 @@ import com.fitpaisa.app.ui.theme.MutedSage
 import com.fitpaisa.app.ui.theme.OnGold
 
 /**
- * Welcome / onboarding: brand promise, Pakistan closed-pilot notice, 18+
+ * Welcome / onboarding: brand promise, Pakistan launch notice, 18+
  * confirmation and terms agreement. Both boxes must be ticked before the
  * gold "Get Started" button enables.
  */
@@ -79,8 +79,8 @@ fun WelcomeScreen(onGetStarted: () -> Unit) {
         )
         Spacer(Modifier.height(16.dp))
         Text(
-            text = "Closed pilot: this test build is for users in Pakistan only. " +
-                "Coins in the pilot are for testing and have no cash value yet.",
+            text = "Made for Pakistan. Walk daily, turn your steps into FitCoins, " +
+                "and cash out your earnings.",
             style = MaterialTheme.typography.bodyMedium,
             color = MutedSage,
             textAlign = TextAlign.Center

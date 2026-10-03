@@ -26,7 +26,7 @@ android {
         minSdk = 28 // Health Connect requirement (M1)
         targetSdk = 34
         versionCode = 1
-        versionName = "0.2.0"
+        versionName = "1.0.0"
 
         buildConfigField("String", "SUPABASE_URL", "\"${configValue("supabase.url", "SUPABASE_URL", "YOUR_SUPABASE_URL")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${configValue("supabase.anon.key", "SUPABASE_ANON_KEY", "YOUR_SUPABASE_ANON_KEY")}\"")

@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.fitpaisa.app.core.economy.EconomyConfig
 import com.fitpaisa.app.core.ui.PilotData
 import com.fitpaisa.app.ui.theme.CoinBalanceCard
 import com.fitpaisa.app.ui.theme.CreamWhite
@@ -30,11 +31,11 @@ import com.fitpaisa.app.ui.theme.MutedSage
 import com.fitpaisa.app.ui.theme.OnGold
 
 /**
- * Wallet: coin balance, disabled cash-out (closed pilot), and a plain-
- * language explainer of how earning works.
+ * Wallet: coin balance, cash-out (opens when payouts are enabled), and a
+ * plain-language explainer of how earning works.
  *
- * M1: balance comes from the server ledger; cash-out opens when the pilot
- * ends (app_config.cashout_enabled).
+ * M1: balance comes from the server ledger; cash-out opens when
+ * [EconomyConfig.CASHOUT_ENABLED] is true (mirrors app_config.cashout_enabled).
  */
 @Composable
 fun WalletScreen() {
@@ -60,8 +61,8 @@ fun WalletScreen() {
         Spacer(Modifier.height(16.dp))
 
         Button(
-            onClick = { /* disabled during the closed pilot */ },
-            enabled = false,
+            onClick = { /* cash-out opens when EconomyConfig.CASHOUT_ENABLED is true */ },
+            enabled = EconomyConfig.CASHOUT_ENABLED,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
@@ -81,7 +82,8 @@ fun WalletScreen() {
         }
         Spacer(Modifier.height(8.dp))
         Text(
-            text = "Cashouts open after the pilot. Your coins are counted and safe until then.",
+            text = "Cashout opens soon — minimum ${EconomyConfig.coinsToRupeesText(EconomyConfig.CASHOUT_MIN_COINS)} " +
+                "(${EconomyConfig.CASHOUT_MIN_COINS} coins). Keep earning; your coins are counted and safe.",
             style = MaterialTheme.typography.bodySmall,
             color = MutedSage
         )
@@ -105,11 +107,12 @@ fun WalletScreen() {
             ) {
                 EarnRow(
                     title = "Walk every day",
-                    body = "Your eligible daily steps turn into coins, up to your level's daily cap."
+                    body = "${EconomyConfig.STEPS_PER_COIN} steps = 1 FitCoin, up to your level's daily step cap. " +
+                        "100 coins = Rs 1."
                 )
                 EarnRow(
                     title = "Level up",
-                    body = "More lifetime steps unlock higher levels — and bigger daily caps."
+                    body = "More lifetime steps unlock higher levels — bigger daily caps, more ads, and bonus coins."
                 )
                 EarnRow(
                     title = "Counted on our server",

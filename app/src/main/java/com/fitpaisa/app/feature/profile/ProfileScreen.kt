@@ -58,7 +58,7 @@ class ProfileViewModel @Inject constructor(
 }
 
 /**
- * Profile: signed-in account, app version, closed-pilot note, and sign out.
+ * Profile: signed-in account, app version, launch note, and sign out.
  */
 @Composable
 fun ProfileScreen(
@@ -122,8 +122,8 @@ fun ProfileScreen(
                 )
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = "Closed pilot: this test build is for users in Pakistan only. " +
-                        "Coins have no cash value yet.",
+                    text = "Made for Pakistan. Walk daily, earn FitCoins, and cash out " +
+                        "your earnings.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MutedSage
                 )

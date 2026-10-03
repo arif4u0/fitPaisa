@@ -25,7 +25,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.fitpaisa.app.core.ui.APP_LEVELS
+import com.fitpaisa.app.core.economy.EconomyConfig
+import com.fitpaisa.app.core.economy.LEVELS
 import com.fitpaisa.app.core.ui.PilotData
 import com.fitpaisa.app.ui.theme.CreamWhite
 import com.fitpaisa.app.ui.theme.ForestGreenCard
@@ -36,9 +37,10 @@ import com.fitpaisa.app.ui.theme.formatNumber
 
 /**
  * Levels: the five earning tiers. The current level is highlighted gold;
- * locked levels show their lifetime-step requirement.
+ * locked levels show their lifetime-step requirement plus the daily perks
+ * each tier unlocks. All numbers come from [EconomyConfig].
  *
- * M1: current level comes from the server profile; thresholds mirror
+ * M1: current level comes from the server profile; tiers mirror
  * supabase/seed.sql.
  */
 @Composable
@@ -61,13 +63,13 @@ fun LevelsScreen() {
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            text = "Walk more, level up, and unlock bigger daily coin caps.",
+            text = "Walk more, level up — bigger daily step caps, more ads, and bonus coins.",
             style = MaterialTheme.typography.bodyMedium,
             color = MutedSage
         )
         Spacer(Modifier.height(16.dp))
 
-        APP_LEVELS.forEach { level ->
+        LEVELS.forEach { level ->
             val isCurrent = level.number == currentLevel
             val isUnlocked = level.number <= currentLevel
             Card(
@@ -108,6 +110,14 @@ fun LevelsScreen() {
                                 "Reach ${formatNumber(level.lifetimeStepsRequired.toInt())} lifetime steps"
                             },
                             style = MaterialTheme.typography.bodyMedium,
+                            color = subColor
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = "${formatNumber(level.dailyStepCap)} steps/day · " +
+                                "${level.dailyAdLimit} ads/day · " +
+                                "${EconomyConfig.adCoinsForLevel(level.number)} coins per ad",
+                            style = MaterialTheme.typography.bodySmall,
                             color = subColor
                         )
                         if (isCurrent) {

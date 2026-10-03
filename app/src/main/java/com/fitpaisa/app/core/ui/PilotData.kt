@@ -19,7 +19,7 @@ object PilotData {
     const val LAST_SYNC_TEXT = "Synced 5m ago"
 }
 
-/** The five earning levels, matching supabase/seed.sql. */
+/** The five earning levels — confirmed commercial tiers, mirrors [EconomyConfig.LEVELS]. */
 data class AppLevel(
     val number: Int,
     val name: String,
@@ -28,8 +28,8 @@ data class AppLevel(
 
 val APP_LEVELS = listOf(
     AppLevel(1, "Starter", 0L),
-    AppLevel(2, "Walker", 25_000L),
-    AppLevel(3, "Strider", 75_000L),
-    AppLevel(4, "Athlete", 150_000L),
-    AppLevel(5, "Champion", 300_000L)
+    AppLevel(2, "Walker", 50_000L),
+    AppLevel(3, "Active", 150_000L),
+    AppLevel(4, "Athlete", 300_000L),
+    AppLevel(5, "Champion", 500_000L)
 )
