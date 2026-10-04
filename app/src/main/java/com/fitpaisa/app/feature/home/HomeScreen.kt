@@ -45,6 +45,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fitpaisa.app.core.auth.AuthRepository
 import com.fitpaisa.app.core.economy.EconomyConfig
+import com.fitpaisa.app.core.rewards.ConvertOutcome
+import com.fitpaisa.app.core.rewards.RewardsRepository
 import com.fitpaisa.app.core.sensor.StepSensorRepository
 import com.fitpaisa.app.core.ui.PilotData
 import com.fitpaisa.app.ui.theme.CoinBalanceCard
@@ -64,22 +66,34 @@ import kotlinx.coroutines.launch
 import java.time.LocalTime
 import javax.inject.Inject
 
+/** Convert button state. */
+sealed interface ConvertUiState {
+    data object Idle : ConvertUiState
+    data object Converting : ConvertUiState
+    data class Done(val message: String) : ConvertUiState
+}
+
 data class HomeUiState(
     val userName: String = "friend",
     val stepsToday: Int = 0,
     val stepsGoal: Int = PilotData.STEPS_GOAL,
-    val coins: Int = PilotData.COINS,
+    /** Coin balance comes ONLY from the server ledger — never computed on the phone. */
+    val coins: Int = 0,
+    val maturingCoins: Int = 0,
+    val balanceLoaded: Boolean = false,
     val level: Int = PilotData.LEVEL,
     val levelName: String = PilotData.LEVEL_NAME,
     val lastSyncText: String = "Live Sensor Active",
     val hasPermission: Boolean = true,
-    val isSensorAvailable: Boolean = true
+    val isSensorAvailable: Boolean = true,
+    val convertState: ConvertUiState = ConvertUiState.Idle
 )
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val authRepository: AuthRepository,
-    private val stepSensorRepository: StepSensorRepository
+    private val stepSensorRepository: StepSensorRepository,
+    private val rewardsRepository: RewardsRepository
 ) : ViewModel() {
 
     var uiState by mutableStateOf(HomeUiState())
@@ -110,13 +124,48 @@ class HomeViewModel @Inject constructor(
 
         viewModelScope.launch {
             stepSensorRepository.todaySteps.collectLatest { sensorSteps ->
-                val calculatedCoins = EconomyConfig.stepsToCoins(sensorSteps)
-                uiState = uiState.copy(
-                    stepsToday = sensorSteps,
-                    coins = calculatedCoins.coerceAtLeast(PilotData.COINS)
-                )
+                uiState = uiState.copy(stepsToday = sensorSteps)
             }
         }
+
+        refreshBalance()
+    }
+
+    /** Pulls the real balance from the server ledger. */
+    fun refreshBalance() {
+        viewModelScope.launch {
+            val b = rewardsRepository.getBalance()
+            uiState = uiState.copy(
+                coins = b.availableCoins,
+                maturingCoins = b.maturingCoins,
+                balanceLoaded = true
+            )
+        }
+    }
+
+    /**
+     * Convert tap: sends today's steps to the server. The SERVER decides how
+     * many coins are credited (level cap, anti-replay) — the phone never does.
+     */
+    fun onConvertClicked() {
+        if (uiState.convertState == ConvertUiState.Converting) return
+        viewModelScope.launch {
+            uiState = uiState.copy(convertState = ConvertUiState.Converting)
+            val outcome = rewardsRepository.convertTodaySteps(uiState.stepsToday)
+            val message = when (outcome) {
+                is ConvertOutcome.Converted ->
+                    "+${outcome.coins} FitCoins added! They mature in 7 days."
+                ConvertOutcome.NothingNew ->
+                    "Nothing new to convert yet — keep walking!"
+                is ConvertOutcome.Failed -> outcome.message
+            }
+            uiState = uiState.copy(convertState = ConvertUiState.Done(message))
+            refreshBalance()
+        }
+    }
+
+    fun dismissConvertMessage() {
+        uiState = uiState.copy(convertState = ConvertUiState.Idle)
     }
 
     fun onPermissionGranted() {
@@ -178,12 +227,29 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
                 .height(240.dp)
                 .align(Alignment.CenterHorizontally)
         )
+        Spacer(Modifier.height(12.dp))
+
+        ConvertSection(
+            steps = state.stepsToday,
+            level = state.level,
+            convertState = state.convertState,
+            onConvert = viewModel::onConvertClicked,
+            onDismiss = viewModel::dismissConvertMessage
+        )
         Spacer(Modifier.height(20.dp))
 
         CoinBalanceCard(
             coins = state.coins,
             modifier = Modifier.fillMaxWidth()
         )
+        if (state.maturingCoins > 0) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "+${formatNumber(state.maturingCoins)} coins maturing (available in 7 days)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MutedSage
+            )
+        }
         Spacer(Modifier.height(16.dp))
 
         Row(
@@ -284,6 +350,67 @@ private fun PermissionCard(onRequestPermission: () -> Unit) {
             ) {
                 Text(text = "Allow", fontWeight = FontWeight.Bold)
             }
+        }
+    }
+}
+
+@Composable
+private fun ConvertSection(
+    steps: Int,
+    level: Int,
+    convertState: ConvertUiState,
+    onConvert: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    // Estimate only — the server decides the real credit (level cap, replays).
+    val cap = EconomyConfig.levelInfo(level).dailyStepCap
+    val estimate = EconomyConfig.stepsToCoins(steps.coerceAtMost(cap))
+    val canConvert = steps >= EconomyConfig.STEPS_PER_COIN &&
+        convertState != ConvertUiState.Converting
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Button(
+            onClick = onConvert,
+            enabled = canConvert,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Gold,
+                contentColor = OnGold,
+                disabledContainerColor = Gold.copy(alpha = 0.25f),
+                disabledContentColor = CreamWhite.copy(alpha = 0.5f)
+            ),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+        ) {
+            Text(
+                text = if (convertState == ConvertUiState.Converting) {
+                    "Converting…"
+                } else {
+                    "Convert ${formatNumber(steps)} steps → ~${formatNumber(estimate)} FitCoins"
+                },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        if (convertState is ConvertUiState.Done) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = convertState.message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Gold
+            )
+            LaunchedEffect(convertState) {
+                kotlinx.coroutines.delay(4000)
+                onDismiss()
+            }
+        } else {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "Coins are credited by our server and mature in 7 days.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MutedSage
+            )
         }
     }
 }

@@ -125,6 +125,7 @@ class StepSensorRepository @Inject constructor(
             val prefs = context.sensorDataStore.data.first()
             var savedBaseline = prefs[Keys.BASELINE_STEPS] ?: -1
             val savedDate = prefs[Keys.BASELINE_DATE]
+            val lastTotal = prefs[Keys.LAST_TOTAL_STEPS] ?: 0
 
             if (savedDate != todayStr || savedBaseline < 0 || currentHardwareTotal < savedBaseline) {
                 // New day or device rebooted (hardware counter reset)
@@ -134,7 +135,9 @@ class StepSensorRepository @Inject constructor(
                     it[Keys.BASELINE_DATE] = todayStr
                     it[Keys.LAST_TOTAL_STEPS] = currentHardwareTotal
                 }
-            } else {
+            } else if (currentHardwareTotal - lastTotal >= PERSIST_EVERY_STEPS) {
+                // Throttled persist: the baseline math recovers the exact count
+                // from the hardware counter anyway, so every step need not hit storage.
                 context.sensorDataStore.edit {
                     it[Keys.LAST_TOTAL_STEPS] = currentHardwareTotal
                 }
@@ -146,4 +149,8 @@ class StepSensorRepository @Inject constructor(
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+    private companion object {
+        const val PERSIST_EVERY_STEPS = 25
+    }
 }

@@ -18,11 +18,20 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.fitpaisa.app.core.economy.EconomyConfig
-import com.fitpaisa.app.core.ui.PilotData
+import com.fitpaisa.app.core.rewards.RewardsRepository
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.launch
+import javax.inject.Inject
 import com.fitpaisa.app.ui.theme.CoinBalanceCard
 import com.fitpaisa.app.ui.theme.CreamWhite
 import com.fitpaisa.app.ui.theme.ForestGreenCard
@@ -34,11 +43,15 @@ import com.fitpaisa.app.ui.theme.OnGold
  * Wallet: coin balance, cash-out (opens when payouts are enabled), and a
  * plain-language explainer of how earning works.
  *
- * M1: balance comes from the server ledger; cash-out opens when
- * [EconomyConfig.CASHOUT_ENABLED] is true (mirrors app_config.cashout_enabled).
+ * Balance comes ONLY from the server ledger via [RewardsRepository].
+ * Cash-out opens when [EconomyConfig.CASHOUT_ENABLED] is true
+ * (mirrors app_config.cashout_enabled).
  */
 @Composable
-fun WalletScreen() {
+fun WalletScreen(viewModel: WalletViewModel = hiltViewModel()) {
+    val coins = viewModel.coins
+    val maturing = viewModel.maturingCoins
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -55,9 +68,17 @@ fun WalletScreen() {
         Spacer(Modifier.height(16.dp))
 
         CoinBalanceCard(
-            coins = PilotData.COINS,
+            coins = coins,
             modifier = Modifier.fillMaxWidth()
         )
+        if (maturing > 0) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "+$maturing coins maturing (available in 7 days)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MutedSage
+            )
+        }
         Spacer(Modifier.height(16.dp))
 
         Button(
@@ -124,8 +145,7 @@ fun WalletScreen() {
 }
 
 @Composable
-private fun EarnRow(title: String, body: String) {
-    Row {
+private fun EarnRow(title: String, body: String) {    Row {
         Text(
             text = "● ",
             color = Gold,
@@ -143,6 +163,32 @@ private fun EarnRow(title: String, body: String) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MutedSage
             )
+        }
+    }
+}
+
+/**
+ * Wallet balance comes ONLY from the server ledger — never computed on the phone.
+ */
+@HiltViewModel
+class WalletViewModel @Inject constructor(
+    private val rewardsRepository: RewardsRepository
+) : ViewModel() {
+
+    var coins by mutableStateOf(0)
+        private set
+    var maturingCoins by mutableStateOf(0)
+        private set
+
+    init {
+        refresh()
+    }
+
+    fun refresh() {
+        viewModelScope.launch {
+            val b = rewardsRepository.getBalance()
+            coins = b.availableCoins
+            maturingCoins = b.maturingCoins
         }
     }
 }
