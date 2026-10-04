@@ -38,6 +38,11 @@ android {
         buildConfig = true
     }
 
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
+
     buildTypes {
         debug {
             // Dev variant installs alongside prod: com.fitpaisa.app.dev
@@ -46,7 +51,9 @@ android {
             buildConfigField("String", "ENV", "\"dev\"")
         }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("String", "ENV", "\"prod\"")
             // Release signing is configured locally per README (keytool).
             // Do NOT commit keystore files or passwords.

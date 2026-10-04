@@ -1,5 +1,9 @@
 package com.fitpaisa.app.feature.home
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,16 +16,26 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -30,41 +44,45 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fitpaisa.app.core.auth.AuthRepository
+import com.fitpaisa.app.core.economy.EconomyConfig
+import com.fitpaisa.app.core.sensor.StepSensorRepository
 import com.fitpaisa.app.core.ui.PilotData
 import com.fitpaisa.app.ui.theme.CoinBalanceCard
 import com.fitpaisa.app.ui.theme.CoinLogo
 import com.fitpaisa.app.ui.theme.CreamWhite
+import com.fitpaisa.app.ui.theme.ForestGreenCard
 import com.fitpaisa.app.ui.theme.Gold
 import com.fitpaisa.app.ui.theme.MutedSage
+import com.fitpaisa.app.ui.theme.OnGold
 import com.fitpaisa.app.ui.theme.OutlineInfoCard
 import com.fitpaisa.app.ui.theme.SuccessGreen
 import com.fitpaisa.app.ui.theme.formatNumber
 import com.fitpaisa.app.ui.theme.goldArcSegment
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.time.LocalTime
 import javax.inject.Inject
 
-/**
- * Dashboard numbers. Everything here is a placeholder until M1 wires the
- * real pipeline — see [PilotData] for the replacement map.
- */
 data class HomeUiState(
     val userName: String = "friend",
-    val stepsToday: Int = PilotData.STEPS_TODAY,       // M1: replace with Health Connect data
-    val stepsGoal: Int = PilotData.STEPS_GOAL,         // M1: replace with reward_rules.daily_cap
-    val coins: Int = PilotData.COINS,                 // M1: replace with server ledger balance
-    val level: Int = PilotData.LEVEL,                 // M1: replace with server level
+    val stepsToday: Int = 0,
+    val stepsGoal: Int = PilotData.STEPS_GOAL,
+    val coins: Int = PilotData.COINS,
+    val level: Int = PilotData.LEVEL,
     val levelName: String = PilotData.LEVEL_NAME,
-    val lastSyncText: String = PilotData.LAST_SYNC_TEXT // M1: replace with sync worker status
+    val lastSyncText: String = "Live Sensor Active",
+    val hasPermission: Boolean = true,
+    val isSensorAvailable: Boolean = true
 )
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val stepSensorRepository: StepSensorRepository
 ) : ViewModel() {
 
-    var uiState = mutableStateOf(HomeUiState())
+    var uiState by mutableStateOf(HomeUiState())
         private set
 
     init {
@@ -75,18 +93,52 @@ class HomeViewModel @Inject constructor(
                 ?.replaceFirstChar { it.uppercaseChar() }
                 ?.takeIf { it.isNotBlank() }
                 ?: "friend"
-            uiState.value = uiState.value.copy(userName = name)
+            uiState = uiState.copy(userName = name)
         }
+
+        viewModelScope.launch {
+            stepSensorRepository.hasPermission.collectLatest { hasPerm ->
+                uiState = uiState.copy(hasPermission = hasPerm)
+            }
+        }
+
+        viewModelScope.launch {
+            stepSensorRepository.isSensorAvailable.collectLatest { available ->
+                uiState = uiState.copy(isSensorAvailable = available)
+            }
+        }
+
+        viewModelScope.launch {
+            stepSensorRepository.todaySteps.collectLatest { sensorSteps ->
+                val calculatedCoins = EconomyConfig.stepsToCoins(sensorSteps)
+                uiState = uiState.copy(
+                    stepsToday = sensorSteps,
+                    coins = calculatedCoins.coerceAtLeast(PilotData.COINS)
+                )
+            }
+        }
+    }
+
+    fun onPermissionGranted() {
+        stepSensorRepository.updatePermissionStatus()
     }
 }
 
 /**
  * Home dashboard, matching the approved design: greeting, big gold steps
- * ring, gold coin-balance card, level + sync cards.
+ * ring, gold coin-balance card, level + sync cards, permission request prompt.
  */
 @Composable
 fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
-    val state = viewModel.uiState.value
+    val state = viewModel.uiState
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            viewModel.onPermissionGranted()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -110,6 +162,13 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
             color = Gold
         )
         Spacer(Modifier.height(20.dp))
+
+        if (!state.hasPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            PermissionCard(onRequestPermission = {
+                permissionLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
+            })
+            Spacer(Modifier.height(16.dp))
+        }
 
         StepsRing(
             steps = state.stepsToday,
@@ -170,12 +229,60 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
                             color = CreamWhite
                         )
                         Text(
-                            text = state.lastSyncText,
+                            text = if (state.isSensorAvailable) "Live Tracking" else "No Hardware Sensor",
                             style = MaterialTheme.typography.bodyMedium,
                             color = Gold
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PermissionCard(onRequestPermission: () -> Unit) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = ForestGreenCard),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.DirectionsWalk,
+                contentDescription = null,
+                tint = Gold,
+                modifier = Modifier.size(36.dp)
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 12.dp)
+            ) {
+                Text(
+                    text = "Activity Tracking Off",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = CreamWhite
+                )
+                Text(
+                    text = "Grant fitness permission so fitPaisa can auto-count your physical steps.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MutedSage
+                )
+            }
+            Button(
+                onClick = onRequestPermission,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Gold,
+                    contentColor = OnGold
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(text = "Allow", fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -196,7 +303,6 @@ private fun TopBar() {
             modifier = Modifier.padding(start = 10.dp)
         )
         Spacer(Modifier.weight(1f))
-        // Decorative in v2 — notifications arrive with M1+ messaging.
         Icon(
             imageVector = Icons.Outlined.Notifications,
             contentDescription = null,
