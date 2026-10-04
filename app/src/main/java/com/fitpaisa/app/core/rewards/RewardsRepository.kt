@@ -4,6 +4,7 @@ import com.fitpaisa.app.BuildConfig
 import com.fitpaisa.app.core.auth.SupabaseClientProvider
 import com.fitpaisa.app.core.network.EdgeFunctions
 import io.github.jan.supabase.functions.functions
+import io.ktor.client.call.body
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
