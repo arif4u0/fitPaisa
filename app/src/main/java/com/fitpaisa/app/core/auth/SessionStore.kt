@@ -16,8 +16,9 @@ private val Context.sessionDataStore by preferencesDataStore(name = "fitpaisa_se
 
 /**
  * Persists the signed-in flag (and user id) in DataStore so the session state
- * survives process death and restart. Supabase itself persists the auth token;
- * this flag gates the cold-start routing without a network round-trip.
+ * survives process death and restart. The actual auth tokens are persisted by
+ * [DataStoreSessionManager] (wired into the Supabase Auth plugin); this flag
+ * gates the cold-start routing without a network round-trip.
  */
 @Singleton
 class SessionStore @Inject constructor(

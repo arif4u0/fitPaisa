@@ -1,6 +1,8 @@
 package com.fitpaisa.app.core.auth
 
+import android.content.Context
 import com.fitpaisa.app.BuildConfig
+import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.createSupabaseClient
@@ -18,9 +20,15 @@ import javax.inject.Singleton
  * or mistyped key can never crash the app on launch. The worst case is a
  * human-readable error at sign-in time. Values are trimmed to survive
  * accidental whitespace from copy-paste.
+ *
+ * Auth sessions are persisted via [DataStoreSessionManager] so sign-in
+ * survives app restarts (the SDK only keeps the session in memory by default).
  */
 @Singleton
-class SupabaseClientProvider @Inject constructor() {
+class SupabaseClientProvider @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val sessionManager: DataStoreSessionManager
+) {
 
     val client: SupabaseClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         val rawUrl = BuildConfig.SUPABASE_URL.trim().removePrefix("supabase.url=")
@@ -34,7 +42,9 @@ class SupabaseClientProvider @Inject constructor() {
             supabaseKey = BuildConfig.SUPABASE_ANON_KEY.trim()
         ) {
             install(Postgrest)
-            install(Auth)
+            install(Auth) {
+                sessionManager = this@SupabaseClientProvider.sessionManager
+            }
             install(Functions)
         }
     }

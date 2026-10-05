@@ -4,36 +4,27 @@ import com.fitpaisa.app.BuildConfig
 import com.fitpaisa.app.core.auth.SupabaseClientProvider
 import com.fitpaisa.app.core.network.EdgeFunctions
 import io.github.jan.supabase.functions.functions
-import io.ktor.client.call.body
+import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.time.LocalDate
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Response from the sync-steps edge function. */
-@Serializable
-data class ConvertResponse(
-    val ok: Boolean = false,
-    val deduped: Boolean = false,
-    @SerialName("eligible_total") val eligibleTotal: Int = 0,
-    @SerialName("new_steps") val newSteps: Int = 0,
-    @SerialName("coins_held") val coinsHeld: Int = 0,
-    val level: Int = 1,
-    @SerialName("daily_cap") val dailyCap: Int = 0
-)
-
-/** Response from the get-balance edge function. */
-@Serializable
+/** Server balance. `ok=false` means it could not be read (treat as 0). */
 data class BalanceResponse(
     val ok: Boolean = false,
-    @SerialName("available_coins") val availableCoins: Int = 0,
-    @SerialName("maturing_coins") val maturingCoins: Int = 0
+    val availableCoins: Int = 0,
+    val maturingCoins: Int = 0
 )
 
 /** Outcome of a Convert tap, in plain language for the UI. */
@@ -50,11 +41,17 @@ sealed interface ConvertOutcome {
  * Talks to the reward edge functions. The server is the ONLY authority that
  * creates coins — this repository only sends step observations and reads back
  * what the server decided. It never computes a balance locally.
+ *
+ * Responses are parsed defensively (field by field, unknown fields ignored)
+ * so a server-side schema change can never crash the app — worst case the
+ * user sees an honest error message.
  */
 @Singleton
 class RewardsRepository @Inject constructor(
     private val clientProvider: SupabaseClientProvider
 ) {
+
+    private val json = Json { ignoreUnknownKeys = true }
 
     /**
      * Sends today's observed step total to the server. The server caps it at
@@ -79,20 +76,37 @@ class RewardsRepository @Inject constructor(
                         })
                     }
                 )
-                if (response.status.value !in 200..299) {
+                val status = response.status.value
+                if (status == 401) {
                     return@withContext ConvertOutcome.Failed(
-                        "Server busy (${response.status.value}). Try again."
+                        "Session expired. Please sign in again."
                     )
                 }
-                val data = response.body<ConvertResponse>()
-                if (!data.ok) return@withContext ConvertOutcome.Failed("Convert failed. Try again.")
-                if (data.deduped || data.coinsHeld <= 0) {
-                    ConvertOutcome.NothingNew
-                } else {
-                    ConvertOutcome.Converted(data.coinsHeld, data.newSteps)
+                if (status !in 200..299) {
+                    return@withContext ConvertOutcome.Failed(
+                        "Server busy (code $status). Try again in a bit."
+                    )
                 }
+                val body = json.parseToJsonElement(response.bodyAsText()).jsonObject
+                if (body["ok"]?.jsonPrimitive?.booleanOrNull != true) {
+                    val err = body["error"]?.jsonPrimitive?.contentOrNull
+                    return@withContext ConvertOutcome.Failed(
+                        if (err == "unauthorized") "Session expired. Please sign in again."
+                        else "Convert failed (${err ?: "unknown error"}). Try again."
+                    )
+                }
+                if (body["deduped"]?.jsonPrimitive?.booleanOrNull == true) {
+                    return@withContext ConvertOutcome.NothingNew
+                }
+                val coins = body["coins_held"]?.jsonPrimitive?.intOrNull ?: 0
+                val newSteps = body["new_steps"]?.jsonPrimitive?.intOrNull ?: 0
+                if (coins <= 0) ConvertOutcome.NothingNew
+                else ConvertOutcome.Converted(coins, newSteps)
             } catch (e: Exception) {
-                ConvertOutcome.Failed("No connection. Check internet and try again.")
+                ConvertOutcome.Failed(
+                    "Couldn't reach the server (${e.message ?: "network error"}). " +
+                        "Check your internet and try again."
+                )
             }
         }
 
@@ -105,10 +119,13 @@ class RewardsRepository @Inject constructor(
                     function = EdgeFunctions.GET_BALANCE,
                     body = buildJsonObject { }
                 )
-                if (response.status.value !in 200..299) {
-                    return@withContext BalanceResponse()
-                }
-                response.body<BalanceResponse>()
+                if (response.status.value !in 200..299) return@withContext BalanceResponse()
+                val body = json.parseToJsonElement(response.bodyAsText()).jsonObject
+                BalanceResponse(
+                    ok = body["ok"]?.jsonPrimitive?.booleanOrNull == true,
+                    availableCoins = body["available_coins"]?.jsonPrimitive?.intOrNull ?: 0,
+                    maturingCoins = body["maturing_coins"]?.jsonPrimitive?.intOrNull ?: 0
+                )
             } catch (e: Exception) {
                 BalanceResponse()
             }
