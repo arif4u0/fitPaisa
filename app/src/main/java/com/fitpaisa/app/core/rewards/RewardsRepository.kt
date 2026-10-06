@@ -3,6 +3,7 @@ package com.fitpaisa.app.core.rewards
 import com.fitpaisa.app.BuildConfig
 import com.fitpaisa.app.core.auth.SupabaseClientProvider
 import com.fitpaisa.app.core.network.EdgeFunctions
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.functions.functions
 import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.Dispatchers
@@ -63,6 +64,13 @@ class RewardsRepository @Inject constructor(
         withContext(Dispatchers.IO) {
             try {
                 val client = clientProvider.client
+                // The SDK silently falls back to the anon key when there is no session,
+                // which the server rejects with 401. Fail fast with a clear message instead.
+                client.auth.awaitInitialization()
+                val session = client.auth.currentSessionOrNull()
+                    ?: return@withContext ConvertOutcome.Failed(
+                        "You don't look signed in (no session). Please sign in again."
+                    )
                 val response = client.functions.invoke(
                     function = EdgeFunctions.SYNC_STEPS,
                     body = buildJsonObject {
