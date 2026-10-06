@@ -34,6 +34,10 @@ class AuthRepository @Inject constructor(
     suspend fun isSignedIn(): Boolean {
         if (!sessionStore.isSignedIn()) return false
         return try {
+            // The SDK restores the saved session on a background coroutine at startup.
+            // Wait for that to finish first; otherwise every cold start looks "logged out"
+            // even though the session is stored correctly.
+            client.auth.awaitInitialization()
             client.auth.retrieveUserForCurrentSession(updateSession = true)
             true
         } catch (e: Exception) {

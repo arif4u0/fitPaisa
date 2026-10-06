@@ -103,10 +103,21 @@ class RewardsRepository @Inject constructor(
                 if (coins <= 0) ConvertOutcome.NothingNew
                 else ConvertOutcome.Converted(coins, newSteps)
             } catch (e: Exception) {
-                ConvertOutcome.Failed(
-                    "Couldn't reach the server (${e.message ?: "network error"}). " +
-                        "Check your internet and try again."
-                )
+                // Note: functions.invoke() throws on HTTP errors (it does not return a 401
+                // response), so auth failures arrive here as an exception whose message
+                // mentions 401/Unauthorized.
+                val msg = e.message.orEmpty()
+                if (msg.contains("401") || msg.contains("unauthorized", ignoreCase = true)) {
+                    ConvertOutcome.Failed(
+                        "Couldn't verify your sign-in with the server. " +
+                            "Try signing in again, and tell me if it keeps happening."
+                    )
+                } else {
+                    ConvertOutcome.Failed(
+                        "Couldn't reach the server (${e.message ?: "network error"}). " +
+                            "Check your internet and try again."
+                    )
+                }
             }
         }
 
