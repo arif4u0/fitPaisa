@@ -38,6 +38,33 @@ sealed interface ConvertOutcome {
     data class Failed(val message: String) : ConvertOutcome
 }
 
+/** A product in the FitCoin catalog. */
+data class Product(
+    val id: String,
+    val name: String,
+    val description: String,
+    val imageUrl: String?,
+    val coinPrice: Int,
+    val stock: Int
+)
+
+/** Outcome of a redeem or cashout request, in plain language. */
+sealed interface RequestOutcome {
+    data class Success(val message: String) : RequestOutcome
+    data class Failed(val message: String) : RequestOutcome
+}
+
+/** An admin-visible redemption or cashout row. */
+data class AdminOrder(
+    val id: String,
+    val userId: String,
+    val title: String,
+    val coins: Int,
+    val status: String,
+    val detail: String,
+    val createdAt: String
+)
+
 /**
  * Talks to the reward edge functions. The server is the ONLY authority that
  * creates coins — this repository only sends step observations and reads back
@@ -150,5 +177,259 @@ class RewardsRepository @Inject constructor(
             } catch (e: Exception) {
                 BalanceResponse()
             }
+        }
+
+    /** Fetches the active product catalog (public read via RLS). */
+    suspend fun getProducts(): List<Product> =
+        withContext(Dispatchers.IO) {
+            try {
+                val client = clientProvider.client
+                val rows = client.from("products")
+                    .select()
+                    .eq("is_active", true)
+                    .order("sort_order", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
+                    .decodeList<Map<String, kotlinx.serialization.json.JsonElement>>()
+                rows.mapNotNull { r ->
+                    try {
+                        Product(
+                            id = r["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                            name = r["name"]?.jsonPrimitive?.content ?: "",
+                            description = r["description"]?.jsonPrimitive?.content ?: "",
+                            imageUrl = r["image_url"]?.jsonPrimitive?.contentOrNull,
+                            coinPrice = r["coin_price"]?.jsonPrimitive?.intOrNull ?: 0,
+                            stock = r["stock"]?.jsonPrimitive?.intOrNull ?: 0
+                        )
+                    } catch (e: Exception) { null }
+                }
+            } catch (e: Exception) {
+                emptyList()
+            }
+        }
+
+    /** Redeems a product: server checks stock + balance atomically. */
+    suspend fun redeemProduct(
+        productId: String,
+        name: String,
+        phone: String,
+        address: String
+    ): RequestOutcome =
+        withContext(Dispatchers.IO) {
+            try {
+                val client = clientProvider.client
+                client.auth.awaitInitialization()
+                if (client.auth.currentSessionOrNull() == null) {
+                    return@withContext RequestOutcome.Failed("Please sign in again.")
+                }
+                val response = client.functions.invoke(
+                    function = EdgeFunctions.REDEEM_PRODUCT,
+                    body = buildJsonObject {
+                        put("product_id", productId)
+                        put("recipient_name", name)
+                        put("recipient_phone", phone)
+                        put("recipient_address", address)
+                    }
+                )
+                val body = json.parseToJsonElement(response.bodyAsText()).jsonObject
+                if (body["ok"]?.jsonPrimitive?.booleanOrNull == true) {
+                    RequestOutcome.Success("Order placed! We'll contact you for delivery.")
+                } else {
+                    val err = body["error"]?.jsonPrimitive?.contentOrNull
+                    RequestOutcome.Failed(
+                        when {
+                            err?.contains("insufficient_coins") == true -> "Not enough coins for this product."
+                            err?.contains("out_of_stock") == true -> "Sorry, this product is out of stock."
+                            else -> "Couldn't place the order. Try again."
+                        }
+                    )
+                }
+            } catch (e: Exception) {
+                val msg = e.message.orEmpty()
+                RequestOutcome.Failed(
+                    if (msg.contains("insufficient_coins")) "Not enough coins for this product."
+                    else if (msg.contains("out_of_stock")) "Sorry, this product is out of stock."
+                    else "Couldn't place the order. Check your internet and try again."
+                )
+            }
+        }
+
+    /** Files a manual cashout request. */
+    suspend fun requestCashout(
+        coins: Int,
+        method: String,
+        accountTitle: String,
+        accountNumber: String
+    ): RequestOutcome =
+        withContext(Dispatchers.IO) {
+            try {
+                val client = clientProvider.client
+                client.auth.awaitInitialization()
+                if (client.auth.currentSessionOrNull() == null) {
+                    return@withContext RequestOutcome.Failed("Please sign in again.")
+                }
+                val response = client.functions.invoke(
+                    function = EdgeFunctions.REQUEST_CASHOUT,
+                    body = buildJsonObject {
+                        put("coins", coins)
+                        put("method", method)
+                        put("account_title", accountTitle)
+                        put("account_number", accountNumber)
+                    }
+                )
+                val body = json.parseToJsonElement(response.bodyAsText()).jsonObject
+                if (body["ok"]?.jsonPrimitive?.booleanOrNull == true) {
+                    val rupees = body["rupees"]?.jsonPrimitive?.contentOrNull ?: ""
+                    RequestOutcome.Success("Request sent! Rs $rupees will be sent to your account after review.")
+                } else {
+                    val err = body["error"]?.jsonPrimitive?.contentOrNull
+                    RequestOutcome.Failed(
+                        when {
+                            err?.contains("below_minimum") == true -> "Minimum cashout is 10,000 coins (Rs 100)."
+                            err?.contains("insufficient_coins") == true -> "Not enough available coins."
+                            else -> "Couldn't send the request. Try again."
+                        }
+                    )
+                }
+            } catch (e: Exception) {
+                val msg = e.message.orEmpty()
+                RequestOutcome.Failed(
+                    if (msg.contains("below_minimum")) "Minimum cashout is 10,000 coins (Rs 100)."
+                    else if (msg.contains("insufficient_coins")) "Not enough available coins."
+                    else "Couldn't send the request. Check your internet and try again."
+                )
+            }
+        }
+
+    /** True when the signed-in user is an admin (for the admin screen). */
+    suspend fun isAdmin(): Boolean =
+        withContext(Dispatchers.IO) {
+            try {
+                val client = clientProvider.client
+                val userId = client.auth.currentUserOrNull()?.id ?: return@withContext false
+                val rows = client.from("profiles")
+                    .select("is_admin") { filter { eq("id", userId) } }
+                    .decodeList<Map<String, kotlinx.serialization.json.JsonElement>>()
+                rows.firstOrNull()?.get("is_admin")?.jsonPrimitive?.booleanOrNull == true
+            } catch (e: Exception) {
+                false
+            }
+        }
+
+    /** Admin: list redemptions (pending first). */
+    suspend fun adminRedemptions(): List<AdminOrder> =
+        withContext(Dispatchers.IO) {
+            try {
+                val client = clientProvider.client
+                val rows = client.from("redemptions")
+                    .select()
+                    .order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                    .decodeList<Map<String, kotlinx.serialization.json.JsonElement>>()
+                rows.mapNotNull { r ->
+                    try {
+                        AdminOrder(
+                            id = r["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                            userId = r["user_id"]?.jsonPrimitive?.content ?: "",
+                            title = r["product_name"]?.jsonPrimitive?.content ?: "",
+                            coins = r["coins_spent"]?.jsonPrimitive?.intOrNull ?: 0,
+                            status = r["status"]?.jsonPrimitive?.content ?: "",
+                            detail = listOfNotNull(
+                                r["recipient_name"]?.jsonPrimitive?.contentOrNull,
+                                r["recipient_phone"]?.jsonPrimitive?.contentOrNull,
+                                r["recipient_address"]?.jsonPrimitive?.contentOrNull
+                            ).joinToString(" | "),
+                            createdAt = r["created_at"]?.jsonPrimitive?.contentOrNull ?: ""
+                        )
+                    } catch (e: Exception) { null }
+                }
+            } catch (e: Exception) { emptyList() }
+        }
+
+    /** Admin: list cashout requests (pending first). */
+    suspend fun adminCashouts(): List<AdminOrder> =
+        withContext(Dispatchers.IO) {
+            try {
+                val client = clientProvider.client
+                val rows = client.from("cashout_requests")
+                    .select()
+                    .order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                    .decodeList<Map<String, kotlinx.serialization.json.JsonElement>>()
+                rows.mapNotNull { r ->
+                    try {
+                        val coins = r["coins"]?.jsonPrimitive?.intOrNull ?: 0
+                        AdminOrder(
+                            id = r["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                            userId = r["user_id"]?.jsonPrimitive?.content ?: "",
+                            title = "${r["method"]?.jsonPrimitive?.content ?: ""} — Rs ${coins / 100}",
+                            coins = coins,
+                            status = r["status"]?.jsonPrimitive?.content ?: "",
+                            detail = listOfNotNull(
+                                r["account_title"]?.jsonPrimitive?.contentOrNull,
+                                r["account_number"]?.jsonPrimitive?.contentOrNull,
+                                r["provider_reference"]?.jsonPrimitive?.contentOrNull
+                            ).joinToString(" | "),
+                            createdAt = r["created_at"]?.jsonPrimitive?.contentOrNull ?: ""
+                        )
+                    } catch (e: Exception) { null }
+                }
+            } catch (e: Exception) { emptyList() }
+        }
+
+    /** Admin: fulfill/cancel a redemption (cancel refunds). */
+    suspend fun resolveRedemption(id: String, fulfilled: Boolean): Boolean =
+        withContext(Dispatchers.IO) {
+            try {
+                // Use the RPC so the refund is atomic.
+                clientProvider.client.postgrest.rpc(
+                    "resolve_redemption",
+                    buildJsonObject {
+                        put("p_redemption_id", id)
+                        put("p_fulfilled", fulfilled)
+                    }
+                )
+                true
+            } catch (e: Exception) { false }
+        }
+
+    /** Admin: mark a cashout paid (with reference) or rejected (refunds). */
+    suspend fun resolveCashout(id: String, paid: Boolean, reference: String): Boolean =
+        withContext(Dispatchers.IO) {
+            try {
+                clientProvider.client.postgrest.rpc(
+                    "resolve_cashout",
+                    buildJsonObject {
+                        put("p_request_id", id)
+                        put("p_paid", paid)
+                        put("p_reference", reference)
+                    }
+                )
+                true
+            } catch (e: Exception) { false }
+        }
+
+    /** Admin: add or update a product. Null id = create. */
+    suspend fun saveProduct(
+        id: String?,
+        name: String,
+        description: String,
+        coinPrice: Int,
+        stock: Int,
+        isActive: Boolean
+    ): Boolean =
+        withContext(Dispatchers.IO) {
+            try {
+                val client = clientProvider.client
+                val payload = buildJsonObject {
+                    put("name", name)
+                    put("description", description)
+                    put("coin_price", coinPrice)
+                    put("stock", stock)
+                    put("is_active", isActive)
+                }
+                if (id == null) {
+                    client.from("products").insert(payload)
+                } else {
+                    client.from("products").update(payload) { filter { eq("id", id) } }
+                }
+                true
+            } catch (e: Exception) { false }
         }
 }

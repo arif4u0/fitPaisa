@@ -5,10 +5,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.outlined.AccountBalanceWallet
+import androidx.compose.material.icons.outlined.CardGiftcard
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.Person
@@ -55,6 +57,8 @@ object Routes {
     const val WALLET = "wallet"
     const val LEVELS = "levels"
     const val PROFILE = "profile"
+    const val REWARDS = "rewards"
+    const val ADMIN = "admin"
 }
 
 private data class Tab(
@@ -66,6 +70,7 @@ private data class Tab(
 
 private val TABS = listOf(
     Tab(Routes.HOME, "Home", Icons.Filled.Home, Icons.Outlined.Home),
+    Tab(Routes.REWARDS, "Rewards", Icons.Filled.CardGiftcard, Icons.Outlined.CardGiftcard),
     Tab(Routes.WALLET, "Wallet", Icons.Filled.AccountBalanceWallet, Icons.Outlined.AccountBalanceWallet),
     Tab(Routes.LEVELS, "Levels", Icons.Filled.Layers, Icons.Outlined.Layers),
     Tab(Routes.PROFILE, "Profile", Icons.Filled.Person, Icons.Outlined.Person)
@@ -148,11 +153,17 @@ fun AppNav(
             composable(Routes.HOME) {
                 HomeScreen()
             }
+            composable(Routes.REWARDS) {
+                com.fitpaisa.app.feature.rewards.RewardsScreen()
+            }
             composable(Routes.WALLET) {
                 WalletScreen()
             }
             composable(Routes.LEVELS) {
                 LevelsScreen()
+            }
+            composable(Routes.ADMIN) {
+                com.fitpaisa.app.feature.admin.AdminScreen()
             }
             composable(Routes.PROFILE) {
                 ProfileScreen(

@@ -13,4 +13,6 @@ object EdgeFunctions {
     const val REVIEW_CASHOUT = "review-cashout"
     const val DELETE_ACCOUNT = "delete-account"
     const val GET_BALANCE = "get-balance"
+    const val REDEEM_PRODUCT = "redeem-product"
+    const val REQUEST_CASHOUT = "request-cashout"
 }

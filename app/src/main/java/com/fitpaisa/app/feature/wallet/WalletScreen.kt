@@ -28,6 +28,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fitpaisa.app.core.economy.EconomyConfig
+import com.fitpaisa.app.core.rewards.RequestOutcome
 import com.fitpaisa.app.core.rewards.RewardsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.launch
@@ -82,7 +83,7 @@ fun WalletScreen(viewModel: WalletViewModel = hiltViewModel()) {
         Spacer(Modifier.height(16.dp))
 
         Button(
-            onClick = { /* cash-out opens when EconomyConfig.CASHOUT_ENABLED is true */ },
+            onClick = { viewModel.openCashout() },
             enabled = EconomyConfig.CASHOUT_ENABLED,
             modifier = Modifier
                 .fillMaxWidth()
@@ -102,12 +103,21 @@ fun WalletScreen(viewModel: WalletViewModel = hiltViewModel()) {
             )
         }
         Spacer(Modifier.height(8.dp))
-        Text(
-            text = "Cashout opens soon — minimum ${EconomyConfig.coinsToRupeesText(EconomyConfig.CASHOUT_MIN_COINS)} " +
-                "(${EconomyConfig.CASHOUT_MIN_COINS} coins). Keep earning; your coins are counted and safe.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MutedSage
-        )
+        if (EconomyConfig.CASHOUT_ENABLED) {
+            Text(
+                text = "Minimum ${EconomyConfig.CASHOUT_MIN_COINS} coins (Rs 100). " +
+                    "We review each request and send the money to your account.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MutedSage
+            )
+        } else {
+            Text(
+                text = "Cashout opens soon — minimum ${EconomyConfig.coinsToRupeesText(EconomyConfig.CASHOUT_MIN_COINS)} " +
+                    "(${EconomyConfig.CASHOUT_MIN_COINS} coins). Keep earning; your coins are counted and safe.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MutedSage
+            )
+        }
         Spacer(Modifier.height(20.dp))
 
         Text(
@@ -142,10 +152,87 @@ fun WalletScreen(viewModel: WalletViewModel = hiltViewModel()) {
             }
         }
     }
+
+    if (viewModel.showCashoutForm) {
+        CashoutDialog(viewModel = viewModel)
+    }
+    viewModel.cashoutMessage?.let { msg ->
+        if (!viewModel.showCashoutForm) {
+            Spacer(Modifier.height(8.dp))
+            Text(text = msg, style = MaterialTheme.typography.bodySmall, color = Gold)
+        }
+    }
 }
 
 @Composable
-private fun EarnRow(title: String, body: String) {    Row {
+private fun CashoutDialog(viewModel: WalletViewModel) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { if (!viewModel.cashoutBusy) viewModel.closeCashout() },
+        title = { Text("Cash out", color = CreamWhite, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "100 coins = Rs 1. Minimum ${EconomyConfig.CASHOUT_MIN_COINS} coins.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MutedSage
+                )
+                androidx.compose.material3.OutlinedTextField(
+                    value = viewModel.cashoutCoins,
+                    onValueChange = { viewModel.setCashoutCoins(it) },
+                    label = { Text("Coins") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                val methods = listOf("easypaisa" to "Easypaisa", "jazzcash" to "JazzCash", "bank" to "Bank")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    methods.forEach { (value, label) ->
+                        androidx.compose.material3.FilterChip(
+                            selected = viewModel.cashoutMethod == value,
+                            onClick = { viewModel.setCashoutMethod(value) },
+                            label = { Text(label) }
+                        )
+                    }
+                }
+                androidx.compose.material3.OutlinedTextField(
+                    value = viewModel.cashoutTitle,
+                    onValueChange = { viewModel.setCashoutTitle(it) },
+                    label = { Text("Account title") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                androidx.compose.material3.OutlinedTextField(
+                    value = viewModel.cashoutNumber,
+                    onValueChange = { viewModel.setCashoutNumber(it) },
+                    label = { Text("Account / mobile number") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                viewModel.cashoutMessage?.let { msg ->
+                    Text(msg, style = MaterialTheme.typography.bodySmall, color = Gold)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { viewModel.submitCashout() },
+                enabled = !viewModel.cashoutBusy,
+                colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = OnGold)
+            ) {
+                Text(if (viewModel.cashoutBusy) "Sending..." else "Send request")
+            }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = { viewModel.closeCashout() }) {
+                Text("Cancel", color = MutedSage)
+            }
+        },
+        containerColor = ForestGreenCard
+    )
+}
+
+@Composable
+private fun EarnRow(title: String, body: String) {
+    Row {
         Text(
             text = "● ",
             color = Gold,
@@ -179,6 +266,20 @@ class WalletViewModel @Inject constructor(
         private set
     var maturingCoins by mutableStateOf(0)
         private set
+    var showCashoutForm by mutableStateOf(false)
+        private set
+    var cashoutCoins by mutableStateOf("")
+        private set
+    var cashoutMethod by mutableStateOf("easypaisa")
+        private set
+    var cashoutTitle by mutableStateOf("")
+        private set
+    var cashoutNumber by mutableStateOf("")
+        private set
+    var cashoutBusy by mutableStateOf(false)
+        private set
+    var cashoutMessage by mutableStateOf<String?>(null)
+        private set
 
     init {
         refresh()
@@ -189,6 +290,51 @@ class WalletViewModel @Inject constructor(
             val b = rewardsRepository.getBalance()
             coins = b.availableCoins
             maturingCoins = b.maturingCoins
+        }
+    }
+
+    fun openCashout() {
+        cashoutMessage = null
+        showCashoutForm = true
+    }
+
+    fun closeCashout() {
+        showCashoutForm = false
+    }
+
+    fun setCashoutCoins(v: String) { cashoutCoins = v.filter { it.isDigit() }.take(7) }
+    fun setCashoutMethod(v: String) { cashoutMethod = v }
+    fun setCashoutTitle(v: String) { cashoutTitle = v }
+    fun setCashoutNumber(v: String) { cashoutNumber = v }
+
+    fun submitCashout() {
+        val amount = cashoutCoins.toIntOrNull() ?: 0
+        if (amount < EconomyConfig.CASHOUT_MIN_COINS) {
+            cashoutMessage = "Minimum is ${EconomyConfig.CASHOUT_MIN_COINS} coins (Rs 100)."
+            return
+        }
+        if (cashoutTitle.isBlank() || cashoutNumber.isBlank()) {
+            cashoutMessage = "Enter the account title and number."
+            return
+        }
+        cashoutBusy = true
+        cashoutMessage = null
+        viewModelScope.launch {
+            val result = rewardsRepository.requestCashout(
+                coins = amount,
+                method = cashoutMethod,
+                accountTitle = cashoutTitle.trim(),
+                accountNumber = cashoutNumber.trim()
+            )
+            cashoutBusy = false
+            when (result) {
+                is RequestOutcome.Success -> {
+                    cashoutMessage = result.message
+                    showCashoutForm = false
+                    refresh()
+                }
+                is RequestOutcome.Failed -> cashoutMessage = result.message
+            }
         }
     }
 }
