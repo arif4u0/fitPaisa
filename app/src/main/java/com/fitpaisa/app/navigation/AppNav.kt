@@ -172,6 +172,9 @@ fun AppNav(
                             // Clear everything: Back from SignIn exits the app.
                             popUpTo(navController.graph.id) { inclusive = true }
                         }
+                    },
+                    onAdminClick = {
+                        navController.navigate(Routes.ADMIN)
                     }
                 )
             }

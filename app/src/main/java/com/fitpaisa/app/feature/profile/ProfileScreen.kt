@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -30,22 +31,28 @@ import com.fitpaisa.app.core.auth.AuthRepository
 import com.fitpaisa.app.ui.theme.CreamWhite
 import com.fitpaisa.app.ui.theme.ErrorRed
 import com.fitpaisa.app.ui.theme.ForestGreenCard
+import com.fitpaisa.app.ui.theme.Gold
 import com.fitpaisa.app.ui.theme.MutedSage
+import com.fitpaisa.app.ui.theme.OnGold
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val rewardsRepository: com.fitpaisa.app.core.rewards.RewardsRepository
 ) : ViewModel() {
 
     var email by mutableStateOf<String?>(null)
+        private set
+    var isAdmin by mutableStateOf(false)
         private set
 
     init {
         viewModelScope.launch {
             email = authRepository.currentUserEmail()
+            isAdmin = rewardsRepository.isAdmin()
         }
     }
 
@@ -63,6 +70,7 @@ class ProfileViewModel @Inject constructor(
 @Composable
 fun ProfileScreen(
     onSignedOut: () -> Unit,
+    onAdminClick: () -> Unit,
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
     Column(
@@ -130,6 +138,27 @@ fun ProfileScreen(
             }
         }
         Spacer(Modifier.height(24.dp))
+
+        if (viewModel.isAdmin) {
+            Button(
+                onClick = onAdminClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Gold,
+                    contentColor = OnGold
+                )
+            ) {
+                Text(
+                    text = "Admin panel",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+        }
 
         OutlinedButton(
             onClick = { viewModel.signOut(onSignedOut) },
