@@ -113,12 +113,14 @@ class RewardsRepository @Inject constructor(
             } catch (e: Exception) {
                 // Note: functions.invoke() throws on HTTP errors (it does not return a 401
                 // response), so auth failures arrive here as an exception whose message
-                // mentions 401/Unauthorized.
+                // mentions 401/Unauthorized. The server now returns a specific reason
+                // (no_auth_header, jwt_rejected: ..., etc.) — surface it for diagnosis.
                 val msg = e.message.orEmpty()
                 if (msg.contains("401") || msg.contains("unauthorized", ignoreCase = true)) {
+                    val reason = Regex("\"error\"\\s*:\\s*\"([^\"]+)\"")
+                        .find(msg)?.groupValues?.getOrNull(1)
                     ConvertOutcome.Failed(
-                        "Couldn't verify your sign-in with the server. " +
-                            "Try signing in again, and tell me if it keeps happening."
+                        "Server said: ${reason ?: "unauthorized"}. Tell me this exact message."
                     )
                 } else {
                     ConvertOutcome.Failed(

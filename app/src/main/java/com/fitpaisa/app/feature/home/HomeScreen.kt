@@ -171,6 +171,10 @@ class HomeViewModel @Inject constructor(
     fun onPermissionGranted() {
         stepSensorRepository.updatePermissionStatus()
     }
+
+    fun refreshStepCount() {
+        stepSensorRepository.refresh()
+    }
 }
 
 /**
@@ -187,6 +191,19 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
         if (isGranted) {
             viewModel.onPermissionGranted()
         }
+    }
+
+    // The hardware counter keeps counting while the app is closed. Force a fresh
+    // reading every time the dashboard becomes visible so it never shows a stale count.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshStepCount()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Column(

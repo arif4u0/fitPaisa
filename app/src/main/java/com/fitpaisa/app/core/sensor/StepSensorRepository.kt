@@ -101,6 +101,20 @@ class StepSensorRepository @Inject constructor(
         sensorManager?.unregisterListener(this)
     }
 
+    /**
+     * Forces a fresh reading from the hardware step counter. Call when the UI
+     * becomes visible: the counter keeps counting while the app is closed, but
+     * no event fires until the count changes, so the display would otherwise
+     * show the last persisted (stale) value. Re-registering makes the system
+     * deliver the current total immediately.
+     */
+    fun refresh() {
+        if (!checkPermission() || stepCounterSensor == null) return
+        _hasPermission.value = true
+        unregisterSensor()
+        registerSensor()
+    }
+
     private suspend fun loadInitialSteps() {
         val prefs = context.sensorDataStore.data.first()
         val savedDate = prefs[Keys.BASELINE_DATE]

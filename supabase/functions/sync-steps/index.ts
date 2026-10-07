@@ -39,23 +39,27 @@ function serviceClient() {
   });
 }
 
-async function getUserId(req: Request): Promise<string | null> {
-  const auth = req.headers.get("Authorization");
-  if (!auth) return null;
-  const anon = createClient(SUPABASE_URL, ANON_KEY, {
-    global: { headers: { Authorization: auth } },
+async function getUserId(req: Request): Promise<{ userId: string | null; reason: string }> {
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) return { userId: null, reason: "no_auth_header" };
+  const jwt = authHeader.replace(/^Bearer\s+/i, "");
+  if (!jwt) return { userId: null, reason: "empty_bearer_token" };
+  // Verify the JWT with the service-role client and the explicit token.
+  // (Does not depend on the anon key, which is auto-injected and never set manually.)
+  const service = createClient(SUPABASE_URL, SERVICE_KEY, {
     auth: { persistSession: false },
   });
-  const { data, error } = await anon.auth.getUser();
-  if (error || !data.user) return null;
-  return data.user.id;
+  const { data, error } = await service.auth.getUser(jwt);
+  if (error) return { userId: null, reason: "jwt_rejected: " + error.message };
+  if (!data.user) return { userId: null, reason: "jwt_valid_but_no_user" };
+  return { userId: data.user.id, reason: "ok" };
 }
 
 serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
-  const userId = await getUserId(req);
-  if (!userId) return json({ error: "unauthorized" }, 401);
+  const { userId, reason } = await getUserId(req);
+  if (!userId) return json({ error: reason }, 401);
 
   let body: Record<string, unknown>;
   try {
