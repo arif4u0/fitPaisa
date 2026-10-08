@@ -68,6 +68,19 @@ fun RewardsScreen(viewModel: RewardsViewModel = hiltViewModel()) {
     val loading = viewModel.loading
     val selected = viewModel.selectedProduct
 
+    // Refresh the catalog every time the tab becomes visible,
+    // so newly added products appear without restarting the app.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                viewModel.refresh()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
