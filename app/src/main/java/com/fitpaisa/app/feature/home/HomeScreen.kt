@@ -94,7 +94,8 @@ class HomeViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val stepSensorRepository: StepSensorRepository,
     private val rewardsRepository: RewardsRepository,
-    private val updateChecker: com.fitpaisa.app.core.update.UpdateChecker
+    private val updateChecker: com.fitpaisa.app.core.update.UpdateChecker,
+    private val adManager: com.fitpaisa.app.core.ads.AdManager
 ) : ViewModel() {
 
     var uiState by mutableStateOf(HomeUiState())
@@ -106,6 +107,8 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             updateInfo = updateChecker.checkForUpdate()
         }
+        // Preload the rewarded ad so it's ready when the user taps Convert.
+        adManager.preload()
         viewModelScope.launch {
             val email = authRepository.currentUserEmail()
             val name = email
@@ -153,10 +156,21 @@ class HomeViewModel @Inject constructor(
      * Convert tap: sends today's steps to the server. The SERVER decides how
      * many coins are credited (level cap, anti-replay) — the phone never does.
      */
-    fun onConvertClicked() {
+    fun onConvertClicked(activity: android.app.Activity) {
         if (uiState.convertState == ConvertUiState.Converting) return
         viewModelScope.launch {
             uiState = uiState.copy(convertState = ConvertUiState.Converting)
+            // Step 1: user must watch a rewarded ad to convert.
+            val watched = adManager.showRewarded(activity)
+            if (!watched) {
+                uiState = uiState.copy(
+                    convertState = ConvertUiState.Done(
+                        "Watch the ad to convert your steps into coins."
+                    )
+                )
+                return@launch
+            }
+            // Step 2: ad watched — credit the coins on the server.
             val outcome = rewardsRepository.convertTodaySteps(uiState.stepsToday)
             val message = when (outcome) {
                 is ConvertOutcome.Converted ->
@@ -263,11 +277,15 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
         )
         Spacer(Modifier.height(12.dp))
 
+        val context = androidx.compose.ui.platform.LocalContext.current
         ConvertSection(
             steps = state.stepsToday,
             level = state.level,
             convertState = state.convertState,
-            onConvert = viewModel::onConvertClicked,
+            onConvert = {
+                val activity = context as? android.app.Activity
+                if (activity != null) viewModel.onConvertClicked(activity)
+            },
             onDismiss = viewModel::dismissConvertMessage
         )
         Spacer(Modifier.height(20.dp))
@@ -472,7 +490,7 @@ private fun ConvertSection(
                 text = if (convertState == ConvertUiState.Converting) {
                     "Converting…"
                 } else {
-                    "Convert ${formatNumber(steps)} steps → ~${formatNumber(estimate)} FitCoins"
+                    "Watch ad → Convert ${formatNumber(steps)} steps"
                 },
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
