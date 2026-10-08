@@ -51,9 +51,11 @@ android {
             buildConfigField("String", "ENV", "\"dev\"")
         }
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Minification disabled: R8 was stripping classes needed by the
+            // AdMob SDK (LoudnessCodecController). APK is slightly larger,
+            // but builds reliably. Re-enable with proper keep rules later.
+            isMinifyEnabled = false
+            isShrinkResources = false
             buildConfigField("String", "ENV", "\"prod\"")
             // Release signing is configured locally per README (keytool).
             // Do NOT commit keystore files or passwords.
