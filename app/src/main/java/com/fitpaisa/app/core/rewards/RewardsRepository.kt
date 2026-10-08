@@ -37,7 +37,12 @@ data class BalanceResponse(
 /** Outcome of a Convert tap, in plain language for the UI. */
 sealed interface ConvertOutcome {
     /** Server credited new coins. */
-    data class Converted(val coins: Int, val newSteps: Int) : ConvertOutcome
+    data class Converted(
+        val coins: Int,
+        val newSteps: Int,
+        val streakDays: Int = 0,
+        val streakBonus: Int = 0
+    ) : ConvertOutcome
     /** Nothing new to convert (already converted, or below 100 steps). */
     data object NothingNew : ConvertOutcome
     /** Something went wrong; the message is safe to show. */
@@ -172,8 +177,10 @@ class RewardsRepository @Inject constructor(
                 }
                 val coins = body["coins_held"]?.jsonPrimitive?.intOrNull ?: 0
                 val newSteps = body["new_steps"]?.jsonPrimitive?.intOrNull ?: 0
+                val streakDays = body["streak_days"]?.jsonPrimitive?.intOrNull ?: 0
+                val streakBonus = body["streak_bonus"]?.jsonPrimitive?.intOrNull ?: 0
                 if (coins <= 0) ConvertOutcome.NothingNew
-                else ConvertOutcome.Converted(coins, newSteps)
+                else ConvertOutcome.Converted(coins, newSteps, streakDays, streakBonus)
             } catch (e: Exception) {
                 val msg = e.message.orEmpty()
                 if (msg.contains("401") || msg.contains("unauthorized", ignoreCase = true)) {

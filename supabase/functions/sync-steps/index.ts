@@ -217,6 +217,43 @@ serve(async (req: Request) => {
       .eq("id", userId);
   }
 
+  // Daily streak: consecutive days with a conversion (coins > 0).
+  // Yesterday → increment; today already counted → keep; otherwise reset to 1.
+  // Milestone bonuses: 7 days = 25 coins, 14 = 50, 30 = 100 (available immediately).
+  let streakDays: number = (profile?.streak_days as number) ?? 0;
+  let streakBonus = 0;
+  if (coins > 0) {
+    const lastStreak: string | null = (profile?.last_streak_date as string) ?? null;
+    const today = localDate; // YYYY-MM-DD
+    const yesterday = new Date(new Date(today + "T00:00:00Z").getTime() - 86400_000)
+      .toISOString().slice(0, 10);
+    if (lastStreak === today) {
+      // Already counted today — no change.
+    } else if (lastStreak === yesterday) {
+      streakDays += 1;
+    } else {
+      streakDays = 1;
+    }
+    const milestones: Record<number, number> = { 7: 25, 14: 50, 30: 100 };
+    if (milestones[streakDays]) {
+      streakBonus = milestones[streakDays];
+      await db.from("ledger_entries").insert({
+        user_id: userId,
+        amount_coins: streakBonus,
+        state: "available",
+        source_type: "streak",
+        source_id: `streak:${userId}:${today}:${streakDays}`,
+        rule_version: ruleVersion,
+        available_at: new Date().toISOString(),
+        metadata: { streak_days: streakDays },
+      });
+    }
+    await db
+      .from("profiles")
+      .update({ streak_days: streakDays, last_streak_date: today })
+      .eq("id", userId);
+  }
+
   return json({
     ok: true,
     eligible_total: eligibleTotal,
@@ -225,5 +262,7 @@ serve(async (req: Request) => {
     ledger_id: ledgerId,
     level: userLevel,
     daily_cap: dailyCap,
+    streak_days: streakDays,
+    streak_bonus: streakBonus,
   });
 });

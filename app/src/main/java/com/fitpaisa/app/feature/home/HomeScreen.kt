@@ -173,8 +173,16 @@ class HomeViewModel @Inject constructor(
             // Step 2: ad watched — credit the coins on the server.
             val outcome = rewardsRepository.convertTodaySteps(uiState.stepsToday)
             val message = when (outcome) {
-                is ConvertOutcome.Converted ->
-                    "+${outcome.coins} FitCoins added! They mature in 7 days."
+                is ConvertOutcome.Converted -> {
+                    val base = "+${outcome.coins} FitCoins added! They mature in 7 days."
+                    val streak = if (outcome.streakDays > 1) {
+                        " 🔥 ${outcome.streakDays}-day streak!"
+                    } else ""
+                    val bonus = if (outcome.streakBonus > 0) {
+                        " +${outcome.streakBonus} streak bonus!"
+                    } else ""
+                    base + streak + bonus
+                }
                 ConvertOutcome.NothingNew ->
                     "Nothing new to convert yet — keep walking!"
                 is ConvertOutcome.Failed -> outcome.message
