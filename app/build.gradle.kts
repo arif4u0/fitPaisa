@@ -43,6 +43,18 @@ android {
         abortOnError = false
     }
 
+    signingConfigs {
+        create("release") {
+            val ksPath = configValue("release.keystore.path", "RELEASE_KEYSTORE_PATH", "")
+            if (ksPath.isNotBlank()) {
+                storeFile = file(ksPath)
+                storePassword = configValue("release.keystore.password", "RELEASE_KEYSTORE_PASSWORD", "")
+                keyAlias = configValue("release.key.alias", "RELEASE_KEY_ALIAS", "")
+                keyPassword = configValue("release.key.password", "RELEASE_KEY_PASSWORD", "")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             // Dev variant installs alongside prod: com.fitpaisa.app.dev
@@ -56,6 +68,7 @@ android {
             // but builds reliably. Re-enable with proper keep rules later.
             isMinifyEnabled = false
             isShrinkResources = false
+            signingConfig = signingConfigs.getByName("release")
             buildConfigField("String", "ENV", "\"prod\"")
             // Release signing is configured locally per README (keytool).
             // Do NOT commit keystore files or passwords.
