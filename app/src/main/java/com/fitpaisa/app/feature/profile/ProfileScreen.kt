@@ -52,7 +52,10 @@ class ProfileViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             email = authRepository.currentUserEmail()
-            isAdmin = rewardsRepository.isAdmin()
+            // Founder fallback: always treat the founder's email as admin,
+            // even if the profiles read is blocked by RLS.
+            isAdmin = rewardsRepository.isAdmin() ||
+                email.equals("arifhassas33@gmail.com", ignoreCase = true)
         }
     }
 
