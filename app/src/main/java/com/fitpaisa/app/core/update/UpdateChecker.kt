@@ -13,11 +13,10 @@ import androidx.core.content.FileProvider
 import com.fitpaisa.app.BuildConfig
 import com.fitpaisa.app.core.auth.SupabaseClientProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
+import io.github.jan.supabase.postgrest.from
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.Serializable
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -30,6 +29,12 @@ data class UpdateInfo(
     val forceUpdate: Boolean
 )
 
+@Serializable
+private data class ConfigRow(
+    val key: String = "",
+    val value: String = ""
+)
+
 /**
  * Checks Supabase app_config for a newer version. When the founder publishes
  * a new APK (updates the row + uploads to the app-releases bucket), users
@@ -40,8 +45,6 @@ class UpdateChecker @Inject constructor(
     @ApplicationContext private val context: Context,
     private val clientProvider: SupabaseClientProvider
 ) {
-    private val json = Json { ignoreUnknownKeys = true }
-
     /** Returns UpdateInfo if a newer version exists, null otherwise. */
     suspend fun checkForUpdate(): UpdateInfo? =
         withContext(Dispatchers.IO) {
@@ -49,11 +52,8 @@ class UpdateChecker @Inject constructor(
                 val client = clientProvider.client
                 val rows = client.from("app_config")
                     .select()
-                    .decodeList<Map<String, kotlinx.serialization.json.JsonElement>>()
-                val map = rows.associate { r ->
-                    (r["key"]?.jsonPrimitive?.contentOrNull ?: "") to
-                        (r["value"]?.jsonPrimitive?.contentOrNull ?: "")
-                }
+                    .decodeList<ConfigRow>()
+                val map = rows.associate { it.key to it.value }
                 val latest = map["latest_version"] ?: return@withContext null
                 if (!isNewer(latest, BuildConfig.VERSION_NAME)) return@withContext null
                 val apkUrl = map["apk_url"] ?: ""
