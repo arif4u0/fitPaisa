@@ -93,13 +93,19 @@ data class HomeUiState(
 class HomeViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val stepSensorRepository: StepSensorRepository,
-    private val rewardsRepository: RewardsRepository
+    private val rewardsRepository: RewardsRepository,
+    private val updateChecker: com.fitpaisa.app.core.update.UpdateChecker
 ) : ViewModel() {
 
     var uiState by mutableStateOf(HomeUiState())
         private set
+    var updateInfo by mutableStateOf<com.fitpaisa.app.core.update.UpdateInfo?>(null)
+        private set
 
     init {
+        viewModelScope.launch {
+            updateInfo = updateChecker.checkForUpdate()
+        }
         viewModelScope.launch {
             val email = authRepository.currentUserEmail()
             val name = email
@@ -174,6 +180,17 @@ class HomeViewModel @Inject constructor(
 
     fun refreshStepCount() {
         stepSensorRepository.refresh()
+    }
+
+    fun dismissUpdate() {
+        updateInfo = null
+    }
+
+    fun downloadUpdate() {
+        updateInfo?.let { updateChecker.downloadAndInstall(it) }
+        if (updateInfo?.forceUpdate != true) {
+            updateInfo = null
+        }
     }
 }
 
@@ -320,6 +337,57 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
                 }
             }
         }
+    }
+
+    // In-app update prompt (for sideloaded APKs — Play Store handles its own updates).
+    viewModel.updateInfo?.let { update ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { if (!update.forceUpdate) viewModel.dismissUpdate() },
+            title = {
+                Text(
+                    "New version available",
+                    color = CreamWhite,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "fitPaisa ${update.latestVersion} is ready.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = CreamWhite
+                    )
+                    if (update.changelog.isNotBlank()) {
+                        Text(
+                            update.changelog,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MutedSage
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.downloadUpdate() },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Gold,
+                        contentColor = OnGold
+                    )
+                ) {
+                    Text("Download update", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                if (!update.forceUpdate) {
+                    androidx.compose.material3.TextButton(
+                        onClick = { viewModel.dismissUpdate() }
+                    ) {
+                        Text("Later", color = MutedSage)
+                    }
+                }
+            },
+            containerColor = ForestGreenCard
+        )
     }
 }
 
