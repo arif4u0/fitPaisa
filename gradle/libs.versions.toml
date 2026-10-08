@@ -13,6 +13,7 @@ coroutines = "1.8.1"
 lifecycle = "2.8.4"
 navigation-compose = "2.7.0"
 ktor = "3.0.0"
+admob = "23.6.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version = "1.13.1" }
@@ -44,6 +45,7 @@ credentials-play-auth = { group = "androidx.credentials", name = "credentials-pl
 googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version = "1.1.1" }
 coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
 coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+admob = { group = "com.google.android.gms", name = "play-services-ads", version.ref = "admob" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
