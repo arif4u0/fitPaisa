@@ -8,6 +8,7 @@ import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.functions.Functions
 import io.github.jan.supabase.postgrest.Postgrest
+import io.github.jan.supabase.storage.Storage
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -46,6 +47,7 @@ class SupabaseClientProvider @Inject constructor(
                 sessionManager = this@SupabaseClientProvider.sessionManager
             }
             install(Functions)
+            install(Storage)
         }
     }
 
