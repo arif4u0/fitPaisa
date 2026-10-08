@@ -57,8 +57,9 @@ android {
 
     buildTypes {
         debug {
-            // Dev variant installs alongside prod: com.fitpaisa.app.dev
-            applicationIdSuffix = ".dev"
+            // Same package as release — only one app icon, no confusion.
+            // Note: debug and release use different keys, so you must
+            // uninstall one before installing the other.
             versionNameSuffix = "-dev"
             buildConfigField("String", "ENV", "\"dev\"")
         }
