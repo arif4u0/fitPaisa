@@ -2,13 +2,11 @@ package com.fitpaisa.app.core.ads
 
 import android.app.Activity
 import android.content.Context
-import com.google.android.gms.ads.AdError
-import com.google.android.gms.ads.AdRequest
-import com.google.android.gms.ads.FullScreenContentCallback
-import com.google.android.gms.ads.LoadAdError
-import com.google.android.gms.ads.MobileAds
-import com.google.android.gms.ads.rewarded.RewardedAd
-import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback
+import com.unity3d.ads.IUnityAdsInitializationListener
+import com.unity3d.ads.IUnityAdsLoadListener
+import com.unity3d.ads.IUnityAdsShowListener
+import com.unity3d.ads.UnityAds
+import com.unity3d.ads.UnityAdsShowOptions
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import javax.inject.Inject
@@ -16,41 +14,60 @@ import javax.inject.Singleton
 import kotlin.coroutines.resume
 
 /**
- * Manages AdMob rewarded ads. The step→coin Convert flow requires watching
+ * Manages Unity rewarded ads. The step→coin Convert flow requires watching
  * an ad: the app shows the ad first, and only calls the server to credit
- * coins after the user earns the reward.
+ * coins after the user watches it to the end.
  *
- * Uses Google's test ad unit ID. Replace with the real one from
- * admob.google.com before release (see AdsConfig).
+ * Uses Unity's test Game ID. Replace with your real Game ID and Ad Unit ID
+ * from dashboard.unity3d.com before release (see AdsConfig).
  */
 @Singleton
 class AdManager @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    private var rewardedAd: RewardedAd? = null
+    private var isInitialized = false
     private var isLoading = false
+    private var isLoaded = false
 
     init {
-        MobileAds.initialize(context) {}
+        UnityAds.initialize(
+            context,
+            AdsConfig.UNITY_GAME_ID,
+            AdsConfig.UNITY_TEST_MODE,
+            object : IUnityAdsInitializationListener {
+                override fun onInitializationComplete() {
+                    isInitialized = true
+                    preload()
+                }
+
+                override fun onInitializationFailed(
+                    error: UnityAds.UnityAdsInitializationError,
+                    message: String
+                ) {
+                    isInitialized = false
+                }
+            }
+        )
     }
 
     /** Preloads a rewarded ad so it's ready when the user taps Convert. */
     fun preload() {
-        if (rewardedAd != null || isLoading) return
+        if (!isInitialized || isLoaded || isLoading) return
         isLoading = true
-        val adRequest = AdRequest.Builder().build()
-        RewardedAd.load(
-            context,
-            AdsConfig.REWARDED_AD_UNIT_ID,
-            adRequest,
-            object : RewardedAdLoadCallback() {
-                override fun onAdLoaded(ad: RewardedAd) {
-                    rewardedAd = ad
+        UnityAds.load(
+            AdsConfig.UNITY_REWARDED_AD_UNIT_ID,
+            object : IUnityAdsLoadListener {
+                override fun onUnityAdsAdLoaded(adUnitId: String) {
+                    isLoaded = true
                     isLoading = false
                 }
 
-                override fun onAdFailedToLoad(error: LoadAdError) {
-                    rewardedAd = null
+                override fun onUnityAdsFailedToLoad(
+                    adUnitId: String,
+                    error: UnityAds.UnityAdsLoadError,
+                    message: String
+                ) {
+                    isLoaded = false
                     isLoading = false
                 }
             }
@@ -59,20 +76,17 @@ class AdManager @Inject constructor(
 
     /**
      * Shows the rewarded ad. Returns true only if the user watched it to the
-     * end (earned the reward), false if it failed, was dismissed early, or
-     * wasn't loaded.
+     * end, false otherwise.
      */
     suspend fun showRewarded(activity: Activity): Boolean =
         suspendCancellableCoroutine { cont ->
-            val ad = rewardedAd
-            if (ad == null) {
-                // No ad ready — preload for next time and report failure.
+            if (!isLoaded) {
                 preload()
                 cont.resume(false)
                 return@suspendCancellableCoroutine
             }
-            rewardedAd = null // consume it
-            preload() // load the next one in the background
+            isLoaded = false // consume it
+            preload() // load the next one
 
             var settled = false
             fun settle(result: Boolean) {
@@ -82,23 +96,34 @@ class AdManager @Inject constructor(
                 }
             }
 
-            ad.fullScreenContentCallback = object : FullScreenContentCallback() {
-                override fun onAdDismissedFullScreenContent() {
-                    // If dismissed without the reward callback firing,
-                    // the user skipped early.
-                    settle(false)
-                }
+            UnityAds.show(
+                activity,
+                AdsConfig.UNITY_REWARDED_AD_UNIT_ID,
+                UnityAdsShowOptions(),
+                object : IUnityAdsShowListener {
+                    override fun onUnityAdsShowFailure(
+                        adUnitId: String,
+                        error: UnityAds.UnityAdsShowError,
+                        message: String
+                    ) {
+                        settle(false)
+                    }
 
-                override fun onAdFailedToShowFullScreenContent(e: AdError) {
-                    settle(false)
+                    override fun onUnityAdsShowStart(adUnitId: String) {}
+
+                    override fun onUnityAdsShowClick(adUnitId: String) {}
+
+                    override fun onUnityAdsShowComplete(
+                        adUnitId: String,
+                        state: UnityAds.UnityAdsShowCompletionState
+                    ) {
+                        // COMPLETED = watched to the end.
+                        settle(state == UnityAds.UnityAdsShowCompletionState.COMPLETED)
+                    }
                 }
-            }
-            ad.show(activity) {
-                // onUserEarnedReward: fired only when fully watched.
-                settle(true)
-            }
+            )
         }
 
     /** True if an ad is preloaded and ready to show. */
-    fun isReady(): Boolean = rewardedAd != null
+    fun isReady(): Boolean = isLoaded
 }
