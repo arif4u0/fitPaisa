@@ -178,7 +178,7 @@ private fun CashoutDialog(viewModel: WalletViewModel) {
                 )
                 androidx.compose.material3.OutlinedTextField(
                     value = viewModel.cashoutCoins,
-                    onValueChange = { viewModel.setCashoutCoins(it) },
+                    onValueChange = { viewModel.onCashoutCoinsChange(it) },
                     label = { Text("Coins") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -188,21 +188,21 @@ private fun CashoutDialog(viewModel: WalletViewModel) {
                     methods.forEach { (value, label) ->
                         androidx.compose.material3.FilterChip(
                             selected = viewModel.cashoutMethod == value,
-                            onClick = { viewModel.setCashoutMethod(value) },
+                            onClick = { viewModel.onCashoutMethodChange(value) },
                             label = { Text(label) }
                         )
                     }
                 }
                 androidx.compose.material3.OutlinedTextField(
                     value = viewModel.cashoutTitle,
-                    onValueChange = { viewModel.setCashoutTitle(it) },
+                    onValueChange = { viewModel.onCashoutTitleChange(it) },
                     label = { Text("Account title") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 androidx.compose.material3.OutlinedTextField(
                     value = viewModel.cashoutNumber,
-                    onValueChange = { viewModel.setCashoutNumber(it) },
+                    onValueChange = { viewModel.onCashoutNumberChange(it) },
                     label = { Text("Account / mobile number") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -302,10 +302,10 @@ class WalletViewModel @Inject constructor(
         showCashoutForm = false
     }
 
-    fun setCashoutCoins(v: String) { cashoutCoins = v.filter { it.isDigit() }.take(7) }
-    fun setCashoutMethod(v: String) { cashoutMethod = v }
-    fun setCashoutTitle(v: String) { cashoutTitle = v }
-    fun setCashoutNumber(v: String) { cashoutNumber = v }
+    fun onCashoutCoinsChange(v: String) { cashoutCoins = v.filter { it.isDigit() }.take(7) }
+    fun onCashoutMethodChange(v: String) { cashoutMethod = v }
+    fun onCashoutTitleChange(v: String) { cashoutTitle = v }
+    fun onCashoutNumberChange(v: String) { cashoutNumber = v }
 
     fun submitCashout() {
         val amount = cashoutCoins.toIntOrNull() ?: 0

@@ -5,9 +5,14 @@ import com.fitpaisa.app.core.auth.SupabaseClientProvider
 import com.fitpaisa.app.core.network.EdgeFunctions
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.functions.functions
+import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Order
 import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
@@ -65,14 +70,49 @@ data class AdminOrder(
     val createdAt: String
 )
 
+@Serializable
+private data class ProductDto(
+    val id: String = "",
+    val name: String = "",
+    val description: String = "",
+    @SerialName("image_url") val imageUrl: String? = null,
+    @SerialName("coin_price") val coinPrice: Int = 0,
+    val stock: Int = 0
+)
+
+@Serializable
+private data class ProfileAdminDto(
+    @SerialName("is_admin") val isAdmin: Boolean = false
+)
+
+@Serializable
+private data class RedemptionDto(
+    val id: String = "",
+    @SerialName("user_id") val userId: String = "",
+    @SerialName("product_name") val productName: String = "",
+    @SerialName("coins_spent") val coinsSpent: Int = 0,
+    val status: String = "",
+    @SerialName("recipient_name") val recipientName: String? = null,
+    @SerialName("recipient_phone") val recipientPhone: String? = null,
+    @SerialName("recipient_address") val recipientAddress: String? = null,
+    @SerialName("created_at") val createdAt: String? = null
+)
+
+@Serializable
+private data class CashoutRequestDto(
+    val id: String = "",
+    @SerialName("user_id") val userId: String = "",
+    val method: String = "",
+    val coins: Int = 0,
+    val status: String = "",
+    @SerialName("account_title") val accountTitle: String? = null,
+    @SerialName("account_number") val accountNumber: String? = null,
+    @SerialName("provider_reference") val providerReference: String? = null,
+    @SerialName("created_at") val createdAt: String? = null
+)
+
 /**
- * Talks to the reward edge functions. The server is the ONLY authority that
- * creates coins — this repository only sends step observations and reads back
- * what the server decided. It never computes a balance locally.
- *
- * Responses are parsed defensively (field by field, unknown fields ignored)
- * so a server-side schema change can never crash the app — worst case the
- * user sees an honest error message.
+ * Talks to the reward edge functions and database tables.
  */
 @Singleton
 class RewardsRepository @Inject constructor(
@@ -82,22 +122,18 @@ class RewardsRepository @Inject constructor(
     private val json = Json { ignoreUnknownKeys = true }
 
     /**
-     * Sends today's observed step total to the server. The server caps it at
-     * the user's level daily cap, credits only NEW steps since the last
-     * convert, and posts held coins to the ledger. Safe to call repeatedly:
-     * replays credit zero.
+     * Sends today's observed step total to the server.
      */
     suspend fun convertTodaySteps(stepsToday: Int): ConvertOutcome =
         withContext(Dispatchers.IO) {
             try {
                 val client = clientProvider.client
-                // The SDK silently falls back to the anon key when there is no session,
-                // which the server rejects with 401. Fail fast with a clear message instead.
                 client.auth.awaitInitialization()
-                val session = client.auth.currentSessionOrNull()
-                    ?: return@withContext ConvertOutcome.Failed(
+                if (client.auth.currentSessionOrNull() == null) {
+                    return@withContext ConvertOutcome.Failed(
                         "You don't look signed in (no session). Please sign in again."
                     )
+                }
                 val response = client.functions.invoke(
                     function = EdgeFunctions.SYNC_STEPS,
                     body = buildJsonObject {
@@ -138,10 +174,6 @@ class RewardsRepository @Inject constructor(
                 if (coins <= 0) ConvertOutcome.NothingNew
                 else ConvertOutcome.Converted(coins, newSteps)
             } catch (e: Exception) {
-                // Note: functions.invoke() throws on HTTP errors (it does not return a 401
-                // response), so auth failures arrive here as an exception whose message
-                // mentions 401/Unauthorized. The server now returns a specific reason
-                // (no_auth_header, jwt_rejected: ..., etc.) — surface it for diagnosis.
                 val msg = e.message.orEmpty()
                 if (msg.contains("401") || msg.contains("unauthorized", ignoreCase = true)) {
                     val reason = Regex("\"error\"\\s*:\\s*\"([^\"]+)\"")
@@ -158,7 +190,7 @@ class RewardsRepository @Inject constructor(
             }
         }
 
-    /** Reads the server balance (releases matured holds first). Never computed locally. */
+    /** Reads the server balance. */
     suspend fun getBalance(): BalanceResponse =
         withContext(Dispatchers.IO) {
             try {
@@ -179,34 +211,35 @@ class RewardsRepository @Inject constructor(
             }
         }
 
-    /** Fetches the active product catalog (public read via RLS). */
+    /** Fetches the active product catalog. */
     suspend fun getProducts(): List<Product> =
         withContext(Dispatchers.IO) {
             try {
                 val client = clientProvider.client
                 val rows = client.from("products")
-                    .select()
-                    .eq("is_active", true)
-                    .order("sort_order", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
-                    .decodeList<Map<String, kotlinx.serialization.json.JsonElement>>()
-                rows.mapNotNull { r ->
-                    try {
-                        Product(
-                            id = r["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
-                            name = r["name"]?.jsonPrimitive?.content ?: "",
-                            description = r["description"]?.jsonPrimitive?.content ?: "",
-                            imageUrl = r["image_url"]?.jsonPrimitive?.contentOrNull,
-                            coinPrice = r["coin_price"]?.jsonPrimitive?.intOrNull ?: 0,
-                            stock = r["stock"]?.jsonPrimitive?.intOrNull ?: 0
-                        )
-                    } catch (e: Exception) { null }
+                    .select {
+                        filter {
+                            eq("is_active", true)
+                        }
+                        order("sort_order", Order.ASCENDING)
+                    }
+                    .decodeList<ProductDto>()
+                rows.map { dto ->
+                    Product(
+                        id = dto.id,
+                        name = dto.name,
+                        description = dto.description,
+                        imageUrl = dto.imageUrl,
+                        coinPrice = dto.coinPrice,
+                        stock = dto.stock
+                    )
                 }
             } catch (e: Exception) {
                 emptyList()
             }
         }
 
-    /** Redeems a product: server checks stock + balance atomically. */
+    /** Redeems a product. */
     suspend fun redeemProduct(
         productId: String,
         name: String,
@@ -299,85 +332,85 @@ class RewardsRepository @Inject constructor(
             }
         }
 
-    /** True when the signed-in user is an admin (for the admin screen). */
+    /** True when the signed-in user is an admin. */
     suspend fun isAdmin(): Boolean =
         withContext(Dispatchers.IO) {
             try {
                 val client = clientProvider.client
                 val userId = client.auth.currentUserOrNull()?.id ?: return@withContext false
-                val rows = client.from("profiles")
-                    .select("is_admin") { filter { eq("id", userId) } }
-                    .decodeList<Map<String, kotlinx.serialization.json.JsonElement>>()
-                rows.firstOrNull()?.get("is_admin")?.jsonPrimitive?.booleanOrNull == true
+                val profile = client.from("profiles")
+                    .select {
+                        filter {
+                            eq("id", userId)
+                        }
+                    }
+                    .decodeSingleOrNull<ProfileAdminDto>()
+                profile?.isAdmin == true
             } catch (e: Exception) {
                 false
             }
         }
 
-    /** Admin: list redemptions (pending first). */
+    /** Admin: list redemptions. */
     suspend fun adminRedemptions(): List<AdminOrder> =
         withContext(Dispatchers.IO) {
             try {
                 val client = clientProvider.client
                 val rows = client.from("redemptions")
-                    .select()
-                    .order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
-                    .decodeList<Map<String, kotlinx.serialization.json.JsonElement>>()
-                rows.mapNotNull { r ->
-                    try {
-                        AdminOrder(
-                            id = r["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
-                            userId = r["user_id"]?.jsonPrimitive?.content ?: "",
-                            title = r["product_name"]?.jsonPrimitive?.content ?: "",
-                            coins = r["coins_spent"]?.jsonPrimitive?.intOrNull ?: 0,
-                            status = r["status"]?.jsonPrimitive?.content ?: "",
-                            detail = listOfNotNull(
-                                r["recipient_name"]?.jsonPrimitive?.contentOrNull,
-                                r["recipient_phone"]?.jsonPrimitive?.contentOrNull,
-                                r["recipient_address"]?.jsonPrimitive?.contentOrNull
-                            ).joinToString(" | "),
-                            createdAt = r["created_at"]?.jsonPrimitive?.contentOrNull ?: ""
-                        )
-                    } catch (e: Exception) { null }
+                    .select {
+                        order("created_at", Order.DESCENDING)
+                    }
+                    .decodeList<RedemptionDto>()
+                rows.map { dto ->
+                    AdminOrder(
+                        id = dto.id,
+                        userId = dto.userId,
+                        title = dto.productName,
+                        coins = dto.coinsSpent,
+                        status = dto.status,
+                        detail = listOfNotNull(
+                            dto.recipientName,
+                            dto.recipientPhone,
+                            dto.recipientAddress
+                        ).filter { it.isNotBlank() }.joinToString(" | "),
+                        createdAt = dto.createdAt.orEmpty()
+                    )
                 }
             } catch (e: Exception) { emptyList() }
         }
 
-    /** Admin: list cashout requests (pending first). */
+    /** Admin: list cashout requests. */
     suspend fun adminCashouts(): List<AdminOrder> =
         withContext(Dispatchers.IO) {
             try {
                 val client = clientProvider.client
                 val rows = client.from("cashout_requests")
-                    .select()
-                    .order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
-                    .decodeList<Map<String, kotlinx.serialization.json.JsonElement>>()
-                rows.mapNotNull { r ->
-                    try {
-                        val coins = r["coins"]?.jsonPrimitive?.intOrNull ?: 0
-                        AdminOrder(
-                            id = r["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
-                            userId = r["user_id"]?.jsonPrimitive?.content ?: "",
-                            title = "${r["method"]?.jsonPrimitive?.content ?: ""} — Rs ${coins / 100}",
-                            coins = coins,
-                            status = r["status"]?.jsonPrimitive?.content ?: "",
-                            detail = listOfNotNull(
-                                r["account_title"]?.jsonPrimitive?.contentOrNull,
-                                r["account_number"]?.jsonPrimitive?.contentOrNull,
-                                r["provider_reference"]?.jsonPrimitive?.contentOrNull
-                            ).joinToString(" | "),
-                            createdAt = r["created_at"]?.jsonPrimitive?.contentOrNull ?: ""
-                        )
-                    } catch (e: Exception) { null }
+                    .select {
+                        order("created_at", Order.DESCENDING)
+                    }
+                    .decodeList<CashoutRequestDto>()
+                rows.map { dto ->
+                    AdminOrder(
+                        id = dto.id,
+                        userId = dto.userId,
+                        title = "${dto.method} — Rs ${dto.coins / 100}",
+                        coins = dto.coins,
+                        status = dto.status,
+                        detail = listOfNotNull(
+                            dto.accountTitle,
+                            dto.accountNumber,
+                            dto.providerReference
+                        ).filter { it.isNotBlank() }.joinToString(" | "),
+                        createdAt = dto.createdAt.orEmpty()
+                    )
                 }
             } catch (e: Exception) { emptyList() }
         }
 
-    /** Admin: fulfill/cancel a redemption (cancel refunds). */
+    /** Admin: fulfill/cancel a redemption. */
     suspend fun resolveRedemption(id: String, fulfilled: Boolean): Boolean =
         withContext(Dispatchers.IO) {
             try {
-                // Use the RPC so the refund is atomic.
                 clientProvider.client.postgrest.rpc(
                     "resolve_redemption",
                     buildJsonObject {
@@ -389,7 +422,7 @@ class RewardsRepository @Inject constructor(
             } catch (e: Exception) { false }
         }
 
-    /** Admin: mark a cashout paid (with reference) or rejected (refunds). */
+    /** Admin: mark a cashout paid or rejected. */
     suspend fun resolveCashout(id: String, paid: Boolean, reference: String): Boolean =
         withContext(Dispatchers.IO) {
             try {
@@ -427,7 +460,11 @@ class RewardsRepository @Inject constructor(
                 if (id == null) {
                     client.from("products").insert(payload)
                 } else {
-                    client.from("products").update(payload) { filter { eq("id", id) } }
+                    client.from("products").update(payload) {
+                        filter {
+                            eq("id", id)
+                        }
+                    }
                 }
                 true
             } catch (e: Exception) { false }
