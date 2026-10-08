@@ -57,12 +57,45 @@ class ProfileViewModel @Inject constructor(
             isAdmin = rewardsRepository.isAdmin() ||
                 email.equals("arifhassas33@gmail.com", ignoreCase = true)
         }
+        loadReferralCode()
     }
 
     fun signOut(onDone: () -> Unit) {
         viewModelScope.launch {
             authRepository.signOut()
             onDone()
+        }
+    }
+
+    // Referrals
+    var referralCode by mutableStateOf<String?>(null)
+        private set
+    var referralInput by mutableStateOf("")
+        private set
+    var referralMessage by mutableStateOf<String?>(null)
+        private set
+    var referralBusy by mutableStateOf(false)
+        private set
+
+    fun loadReferralCode() {
+        viewModelScope.launch {
+            referralCode = rewardsRepository.myReferralCode()
+        }
+    }
+
+    fun onReferralInputChange(v: String) {
+        referralInput = v.uppercase().filter { it.isLetterOrDigit() }.take(8)
+        referralMessage = null
+    }
+
+    fun claimReferral() {
+        if (referralBusy || referralInput.isBlank()) return
+        viewModelScope.launch {
+            referralBusy = true
+            val (ok, message) = rewardsRepository.claimReferral(referralInput)
+            referralMessage = message
+            referralBusy = false
+            if (ok) referralInput = ""
         }
     }
 }
@@ -142,6 +175,11 @@ fun ProfileScreen(
         }
         Spacer(Modifier.height(24.dp))
 
+        // Referrals: share your code, or enter a friend's code.
+        ReferralCard(viewModel = viewModel)
+
+        Spacer(Modifier.height(12.dp))
+
         if (viewModel.isAdmin) {
             Button(
                 onClick = onAdminClick,
@@ -177,6 +215,125 @@ fun ProfileScreen(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold
             )
+        }
+    }
+}
+
+@Composable
+private fun ReferralCard(viewModel: ProfileViewModel) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = ForestGreenCard),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "Invite friends, earn coins",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = CreamWhite
+            )
+            Text(
+                text = "Share your code — you both get 500 FitCoins (Rs 5) when they join.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MutedSage
+            )
+
+            // My code + share button.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = viewModel.referralCode ?: "…",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Gold,
+                    modifier = Modifier.weight(1f)
+                )
+                Button(
+                    onClick = {
+                        val code = viewModel.referralCode ?: return@Button
+                        val text = "Join me on fitPaisa — walk and earn real rewards! " +
+                            "Use my code $code when you sign up and we both get 500 FitCoins."
+                        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(android.content.Intent.EXTRA_TEXT, text)
+                            setPackage("com.whatsapp")
+                        }
+                        try {
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            // WhatsApp not installed — fall back to generic share.
+                            val generic = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(android.content.Intent.EXTRA_TEXT, text)
+                            }
+                            context.startActivity(
+                                android.content.Intent.createChooser(generic, "Share invite")
+                            )
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Gold,
+                        contentColor = OnGold
+                    )
+                ) {
+                    Text("Share", fontWeight = FontWeight.Bold)
+                }
+            }
+
+            androidx.compose.material3.HorizontalDivider(color = MutedSage.copy(alpha = 0.3f))
+
+            // Enter a friend's code.
+            Text(
+                text = "Have a friend's code?",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = CreamWhite
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                androidx.compose.material3.OutlinedTextField(
+                    value = viewModel.referralInput,
+                    onValueChange = viewModel::onReferralInputChange,
+                    label = { Text("Enter code", color = MutedSage) },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = CreamWhite,
+                        unfocusedTextColor = CreamWhite,
+                        focusedBorderColor = Gold,
+                        unfocusedBorderColor = MutedSage
+                    )
+                )
+                Button(
+                    onClick = viewModel::claimReferral,
+                    enabled = !viewModel.referralBusy && viewModel.referralInput.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Gold,
+                        contentColor = OnGold
+                    )
+                ) {
+                    Text(
+                        if (viewModel.referralBusy) "…" else "Apply",
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            viewModel.referralMessage?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (it.startsWith("+")) Gold else Color(0xFFE57373)
+                )
+            }
         }
     }
 }

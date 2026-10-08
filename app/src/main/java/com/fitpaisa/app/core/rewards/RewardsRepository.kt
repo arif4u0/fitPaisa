@@ -486,4 +486,57 @@ class RewardsRepository @Inject constructor(
                 client.storage.from("product-images").publicUrl(fileName)
             } catch (e: Exception) { null }
         }
+
+    /** Fetches the signed-in user's referral code (null if unavailable). */
+    suspend fun myReferralCode(): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                val client = clientProvider.client
+                val userId = client.auth.currentUserOrNull()?.id ?: return@withContext null
+                val row = client.from("profiles")
+                    .select {
+                        filter { eq("id", userId) }
+                    }
+                    .decodeSingleOrNull<ReferralCodeDto>()
+                row?.referralCode
+            } catch (e: Exception) { null }
+        }
+
+    /**
+     * Claims a referral code. Returns (success, message).
+     * Server enforces: valid code, not self, one-time only.
+     */
+    suspend fun claimReferral(code: String): Pair<Boolean, String> =
+        withContext(Dispatchers.IO) {
+            try {
+                val client = clientProvider.client
+                val response = client.functions.invoke(
+                    function = EdgeFunctions.CLAIM_REFERRAL,
+                    body = buildJsonObject {
+                        put("code", code.trim().uppercase())
+                    }
+                )
+                val text = response.bodyAsText()
+                val parsed = Json.parseToJsonElement(text).jsonObject
+                if (response.status.value == 200 && parsed["ok"]?.jsonPrimitive?.booleanOrNull == true) {
+                    val bonus = parsed["bonus_coins"]?.jsonPrimitive?.intOrNull ?: 500
+                    true to "+$bonus FitCoins referral bonus!"
+                } else {
+                    val error = parsed["error"]?.jsonPrimitive?.contentOrNull
+                    false to when (error) {
+                        "invalid_code" -> "That code doesn't exist — check and try again."
+                        "cannot_refer_self" -> "You can't use your own code."
+                        "already_claimed" -> "You've already claimed a referral bonus."
+                        else -> "Couldn't apply that code. Try again."
+                    }
+                }
+            } catch (e: Exception) {
+                false to "Couldn't apply that code. Try again."
+            }
+        }
 }
+
+@Serializable
+private data class ReferralCodeDto(
+    @SerialName("referral_code") val referralCode: String? = null
+)
