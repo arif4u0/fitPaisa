@@ -240,8 +240,8 @@ private fun ProductsTab(viewModel: AdminViewModel) {
             fontWeight = FontWeight.Bold,
             color = CreamWhite
         )
-        ProductForm(onSave = { name, desc, price, stock, active ->
-            viewModel.addProduct(name, desc, price, stock, active)
+        ProductForm(onSave = { name, desc, price, stock, active, imageUrl ->
+            viewModel.addProduct(name, desc, price, stock, active, imageUrl)
         })
         Text(
             text = "New products appear in the shop right away. Editing or removing existing products is coming soon.",
@@ -435,7 +435,7 @@ private fun CashoutCard(
 
 @Composable
 private fun ProductForm(
-    onSave: (name: String, description: String, coinPrice: Int, stock: Int, isActive: Boolean) -> Unit
+    onSave: (name: String, description: String, coinPrice: Int, stock: Int, isActive: Boolean, imageUrl: String?) -> Unit
 ) {
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
@@ -443,6 +443,26 @@ private fun ProductForm(
     var stockText by remember { mutableStateOf("") }
     var isActive by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var imageUrl by remember { mutableStateOf<String?>(null) }
+    var uploading by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val viewModel: AdminViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+
+    val pickImage = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            uploading = true
+            viewModel.uploadImage(context, uri) { url ->
+                uploading = false
+                if (url != null) {
+                    imageUrl = url
+                } else {
+                    error = "Image upload failed — try again."
+                }
+            }
+        }
+    }
 
     Card(
         shape = RoundedCornerShape(20.dp),
@@ -459,6 +479,21 @@ private fun ProductForm(
                 onValueChange = { description = it },
                 label = "Description"
             )
+            // Product image picker.
+            androidx.compose.material3.OutlinedButton(
+                onClick = { pickImage.launch("image/*") },
+                enabled = !uploading,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = when {
+                        uploading -> "Uploading…"
+                        imageUrl != null -> "✓ Image added — tap to change"
+                        else -> "Add product image (optional)"
+                    },
+                    color = CreamWhite
+                )
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -507,7 +542,7 @@ private fun ProductForm(
                         error = "Price must be more than 0 coins."
                     } else {
                         error = null
-                        onSave(name.trim(), description.trim(), price, stock, isActive)
+                        onSave(name.trim(), description.trim(), price, stock, isActive, imageUrl)
                         name = ""
                         description = ""
                         priceText = ""
@@ -591,6 +626,30 @@ class AdminViewModel @Inject constructor(
         message = null
     }
 
+    /**
+     * Reads the picked image and uploads it. Calls [onDone] with the public
+     * URL, or null on failure.
+     */
+    fun uploadImage(
+        context: android.content.Context,
+        uri: android.net.Uri,
+        onDone: (String?) -> Unit
+    ) {
+        viewModelScope.launch {
+            val url = try {
+                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                if (bytes == null) {
+                    null
+                } else {
+                    val ext = context.contentResolver.getType(uri)
+                        ?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "jpg"
+                    rewardsRepository.uploadProductImage(bytes, ext)
+                }
+            } catch (e: Exception) { null }
+            onDone(url)
+        }
+    }
+
     fun reload() {
         viewModelScope.launch {
             loading = true
@@ -637,7 +696,8 @@ class AdminViewModel @Inject constructor(
         description: String,
         coinPrice: Int,
         stock: Int,
-        isActive: Boolean
+        isActive: Boolean,
+        imageUrl: String? = null
     ) {
         viewModelScope.launch {
             val ok = rewardsRepository.saveProduct(
@@ -646,7 +706,8 @@ class AdminViewModel @Inject constructor(
                 description = description,
                 coinPrice = coinPrice,
                 stock = stock,
-                isActive = isActive
+                isActive = isActive,
+                imageUrl = imageUrl
             )
             message = if (ok) "Product added to the catalog." else "Something went wrong. Try again."
         }

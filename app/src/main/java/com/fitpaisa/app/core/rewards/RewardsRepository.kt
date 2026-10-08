@@ -8,6 +8,7 @@ import io.github.jan.supabase.functions.functions
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Order
+import io.github.jan.supabase.storage.storage
 import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -445,7 +446,8 @@ class RewardsRepository @Inject constructor(
         description: String,
         coinPrice: Int,
         stock: Int,
-        isActive: Boolean
+        isActive: Boolean,
+        imageUrl: String? = null
     ): Boolean =
         withContext(Dispatchers.IO) {
             try {
@@ -456,6 +458,7 @@ class RewardsRepository @Inject constructor(
                     put("coin_price", coinPrice)
                     put("stock", stock)
                     put("is_active", isActive)
+                    if (imageUrl != null) put("image_url", imageUrl)
                 }
                 if (id == null) {
                     client.from("products").insert(payload)
@@ -468,5 +471,19 @@ class RewardsRepository @Inject constructor(
                 }
                 true
             } catch (e: Exception) { false }
+        }
+
+    /**
+     * Uploads a product image to the public 'product-images' bucket.
+     * Returns the public URL, or null on failure.
+     */
+    suspend fun uploadProductImage(bytes: ByteArray, extension: String): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                val client = clientProvider.client
+                val fileName = "product_${System.currentTimeMillis()}.$extension"
+                client.storage.from("product-images").upload(fileName, bytes)
+                client.storage.from("product-images").publicUrl(fileName)
+            } catch (e: Exception) { null }
         }
 }
