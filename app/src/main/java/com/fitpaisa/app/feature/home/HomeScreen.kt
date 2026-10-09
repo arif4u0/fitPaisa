@@ -104,9 +104,6 @@ class HomeViewModel @Inject constructor(
         private set
 
     init {
-        viewModelScope.launch {
-            updateInfo = updateChecker.checkForUpdate()
-        }
         // Preload the rewarded ad so it's ready when the user taps Convert.
         adManager.preload()
         viewModelScope.launch {
@@ -208,6 +205,16 @@ class HomeViewModel @Inject constructor(
         updateInfo = null
     }
 
+    /** Checks for a new version; call on every resume so the popup appears. */
+    fun checkForUpdates() {
+        viewModelScope.launch {
+            // Only check if we haven't already found an update.
+            if (updateInfo == null) {
+                updateInfo = updateChecker.checkForUpdate()
+            }
+        }
+    }
+
     fun downloadUpdate() {
         updateInfo?.let { updateChecker.downloadAndInstall(it) }
         if (updateInfo?.forceUpdate != true) {
@@ -239,6 +246,7 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 viewModel.refreshStepCount()
+                viewModel.checkForUpdates()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
