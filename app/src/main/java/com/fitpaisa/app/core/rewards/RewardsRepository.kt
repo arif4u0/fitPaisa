@@ -549,9 +549,107 @@ class RewardsRepository @Inject constructor(
                 false to "Couldn't apply that code. Try again."
             }
         }
+
+    /** Result of a lucky spin. */
+    sealed interface SpinOutcome {
+        data class Won(val prizeCoins: Int, val spinType: String) : SpinOutcome
+        data object FreeSpinUsed : SpinOutcome
+        data class Failed(val message: String) : SpinOutcome
+    }
+
+    /**
+     * Calls the spin-wheel Edge Function. The server picks the prize.
+     * @param spinType "free" (1/day) or "ad" (after watching a rewarded ad).
+     */
+    suspend fun spin(spinType: String): SpinOutcome =
+        withContext(Dispatchers.IO) {
+            try {
+                val client = clientProvider.client
+                val today = java.time.LocalDate.now().toString()
+                val response = client.functions.invoke(
+                    function = EdgeFunctions.SPIN_WHEEL,
+                    body = buildJsonObject {
+                        put("local_date", today)
+                        put("spin_type", spinType)
+                    }
+                )
+                val text = response.bodyAsText()
+                val parsed = Json.parseToJsonElement(text).jsonObject
+                if (response.status.value !in 200..299) {
+                    return@withContext SpinOutcome.Failed("Spin failed — try again.")
+                }
+                if (parsed["already_used"]?.jsonPrimitive?.booleanOrNull == true) {
+                    return@withContext SpinOutcome.FreeSpinUsed
+                }
+                val prize = parsed["prize_coins"]?.jsonPrimitive?.intOrNull ?: 0
+                if (prize <= 0) SpinOutcome.Failed("Spin failed — try again.")
+                else SpinOutcome.Won(prize, spinType)
+            } catch (e: Exception) {
+                SpinOutcome.Failed("Couldn't reach the server. Check your internet.")
+            }
+        }
+
+    /** Fetches the weekly leaderboard (top walkers this week). */
+    suspend fun getLeaderboard(): List<LeaderboardEntry> =
+        withContext(Dispatchers.IO) {
+            try {
+                val client = clientProvider.client
+                client.from("weekly_leaderboard")
+                    .select()
+                    .decodeList<LeaderboardEntry>()
+            } catch (e: Exception) {
+                emptyList()
+            }
+        }
+
+    /** Fetches the user's unlocked achievements. */
+    suspend fun getAchievements(): List<String> =
+        withContext(Dispatchers.IO) {
+            try {
+                val client = clientProvider.client
+                val userId = client.auth.currentUserOrNull()?.id ?: return@withContext emptyList()
+                client.from("user_achievements")
+                    .select {
+                        filter { eq("user_id", userId) }
+                    }
+                    .decodeList<Map<String, String>>()
+                    .mapNotNull { it["achievement_id"] }
+            } catch (e: Exception) {
+                emptyList()
+            }
+        }
+
+    /** Checks if today's free spin is still available. */
+    suspend fun isFreeSpinAvailable(): Boolean =
+        withContext(Dispatchers.IO) {
+            try {
+                val client = clientProvider.client
+                val today = java.time.LocalDate.now().toString()
+                val userId = client.auth.currentUserOrNull()?.id ?: return@withContext false
+                val rows = client.from("spin_history")
+                    .select {
+                        filter {
+                            eq("user_id", userId)
+                            eq("local_date", today)
+                            eq("spin_type", "free")
+                        }
+                    }
+                    .decodeList<Map<String, String>>()
+                rows.isEmpty()
+            } catch (e: Exception) {
+                true // Assume available if we can't check; server enforces the limit.
+            }
+        }
 }
 
 @Serializable
 private data class ReferralCodeDto(
     @SerialName("referral_code") val referralCode: String? = null
+)
+
+@Serializable
+data class LeaderboardEntry(
+    @SerialName("user_id") val userId: String = "",
+    @SerialName("display_name") val displayName: String = "Walker",
+    @SerialName("week_steps") val weekSteps: Long = 0
 )

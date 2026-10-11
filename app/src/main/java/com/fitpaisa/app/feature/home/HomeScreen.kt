@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.Button
@@ -97,9 +98,9 @@ data class HomeUiState(
 class HomeViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val stepSensorRepository: StepSensorRepository,
-    private val rewardsRepository: RewardsRepository,
+    val rewardsRepository: RewardsRepository,
     private val updateChecker: com.fitpaisa.app.core.update.UpdateChecker,
-    private val adManager: com.fitpaisa.app.core.ads.AdManager
+    val adManager: com.fitpaisa.app.core.ads.AdManager
 ) : ViewModel() {
 
     var uiState by mutableStateOf(HomeUiState())
@@ -210,6 +211,18 @@ class HomeViewModel @Inject constructor(
 
     fun dismissUpdate() {
         updateInfo = null
+    }
+
+    // --- Lucky Spin ---
+    var showSpinDialog by mutableStateOf(false)
+        private set
+    var freeSpinAvailable by mutableStateOf(true)
+
+    fun openSpin() {
+        viewModelScope.launch {
+            freeSpinAvailable = rewardsRepository.isFreeSpinAvailable()
+            showSpinDialog = true
+        }
     }
 
     /** Checks for a new version; call on every resume so the popup appears. */
@@ -333,7 +346,28 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
             bonus = state.challengeBonus,
             modifier = Modifier.fillMaxWidth()
         )
+        Spacer(Modifier.height(12.dp))
+
+        // Lucky Spin entry card.
+        SpinEntryCard(
+            onClick = { viewModel.openSpin() },
+            modifier = Modifier.fillMaxWidth()
+        )
         Spacer(Modifier.height(16.dp))
+
+        // Spin dialog.
+        if (viewModel.showSpinDialog) {
+            val ctx = context
+            SpinWheelDialog(
+                rewardsRepository = viewModel.rewardsRepository,
+                adManager = viewModel.adManager,
+                activity = ctx as? android.app.Activity,
+                freeSpinAvailable = viewModel.freeSpinAvailable,
+                onFreeSpinUsed = { viewModel.freeSpinAvailable = false },
+                onDismiss = { viewModel.showSpinDialog = false },
+                onPrizeWon = { viewModel.refreshBalance() }
+            )
+        }
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -604,6 +638,49 @@ private fun dayGreeting(): String = when (LocalTime.now().hour) {
     in 12..16 -> "Good afternoon"
     in 17..21 -> "Good evening"
     else -> "Good night"
+}
+
+/** Entry card that opens the Lucky Spin dialog. */
+@Composable
+private fun SpinEntryCard(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = ForestGreenCard),
+        onClick = onClick
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = "🍀", fontSize = 28.sp)
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = "Lucky Spin",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "Win up to 100 coins!",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MutedSage
+                    )
+                }
+            }
+            Icon(
+                imageVector = Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = Gold
+            )
+        }
+    }
 }
 
 /** Today's Challenge card: walk the target steps to earn bonus coins. */

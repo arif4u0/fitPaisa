@@ -294,6 +294,24 @@ serve(async (req: Request) => {
     }
   }
 
+  // Achievements: unlock milestone badges (idempotent via PK).
+  {
+    const toUnlock: string[] = [];
+    if (eligibleTotal >= 10000) toUnlock.push("first_10k_day");
+    const lifetime = ((profile?.lifetime_steps as number) ?? 0) + newSteps;
+    if (lifetime >= 100000) toUnlock.push("lifetime_100k");
+    if (lifetime >= 500000) toUnlock.push("lifetime_500k");
+    if (lifetime >= 1000000) toUnlock.push("lifetime_1m");
+    if (streakDays >= 7) toUnlock.push("streak_7");
+    if (streakDays >= 30) toUnlock.push("streak_30");
+    for (const ach of toUnlock) {
+      await db.from("user_achievements").upsert(
+        { user_id: userId, achievement_id: ach },
+        { onConflict: "user_id,achievement_id", ignoreDuplicates: true },
+      );
+    }
+  }
+
   return json({
     ok: true,
     eligible_total: eligibleTotal,

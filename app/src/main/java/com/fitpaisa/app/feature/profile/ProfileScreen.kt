@@ -150,6 +150,10 @@ fun ProfileScreen(
         }
         Spacer(Modifier.height(12.dp))
 
+        // Achievements.
+        AchievementsSection()
+        Spacer(Modifier.height(12.dp))
+
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = ForestGreenCard),
@@ -338,6 +342,90 @@ private fun ReferralCard(viewModel: ProfileViewModel) {
                     color = if (it.startsWith("+")) Gold else Color(0xFFE57373)
                 )
             }
+        }
+    }
+}
+
+/** All achievements with their display info. */
+private val ALL_ACHIEVEMENTS = listOf(
+    "first_10k_day" to ("🚶 10K Day" to "Walk 10,000 steps in one day"),
+    "streak_7" to ("🔥 7-Day Streak" to "Convert 7 days in a row"),
+    "streak_30" to ("⚡ 30-Day Streak" to "Convert 30 days in a row"),
+    "lifetime_100k" to ("🌟 100K Steps" to "Walk 100,000 lifetime steps"),
+    "lifetime_500k" to ("💫 500K Steps" to "Walk 500,000 lifetime steps"),
+    "lifetime_1m" to ("🏆 1M Steps" to "Walk 1,000,000 lifetime steps"),
+)
+
+/** Achievements section: shows unlocked badges. */
+@Composable
+private fun AchievementsSection(
+    viewModel: AchievementsViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+) {
+    val unlocked = viewModel.unlocked
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = ForestGreenCard),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Text(
+                text = "🏅 Achievements",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = CreamWhite
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "${unlocked.size} of ${ALL_ACHIEVEMENTS.size} unlocked",
+                style = MaterialTheme.typography.bodySmall,
+                color = MutedSage
+            )
+            Spacer(Modifier.height(12.dp))
+            ALL_ACHIEVEMENTS.forEach { (id, info) ->
+                val (title, desc) = info
+                val isUnlocked = id in unlocked
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (isUnlocked) Gold else MutedSage.copy(alpha = 0.5f),
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = if (isUnlocked) "✓" else "🔒",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (isUnlocked) Gold else MutedSage.copy(alpha = 0.5f)
+                    )
+                }
+                if (!isUnlocked) {
+                    Text(
+                        text = desc,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MutedSage.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@dagger.hilt.android.lifecycle.HiltViewModel
+class AchievementsViewModel @javax.inject.Inject constructor(
+    private val rewardsRepository: com.fitpaisa.app.core.rewards.RewardsRepository
+) : androidx.lifecycle.ViewModel() {
+    var unlocked by mutableStateOf<Set<String>>(emptySet())
+        private set
+
+    init {
+        androidx.lifecycle.viewModelScope.launch {
+            unlocked = rewardsRepository.getAchievements().toSet()
         }
     }
 }
