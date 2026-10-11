@@ -115,23 +115,11 @@ fun RewardsScreen(viewModel: RewardsViewModel = hiltViewModel()) {
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "No rewards right now — check back later.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MutedSage
-                        )
-                        // Temporary diagnostic: shows the real error if the query failed.
-                        val err = viewModel.productsError
-                        if (err != null) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Error: $err",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.Red
-                            )
-                        }
-                    }
+                    Text(
+                        text = "No rewards right now — check back later.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MutedSage
+                    )
                 }
             }
             else -> {
