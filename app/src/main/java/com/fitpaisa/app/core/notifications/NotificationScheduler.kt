@@ -23,7 +23,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class NotificationScheduler @Inject constructor(
-    private val context: Context
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context
 ) {
     companion object {
         const val CHANNEL_ID = "fitpaisa_reminders"
