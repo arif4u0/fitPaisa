@@ -16,6 +16,7 @@ ktor = "3.0.0"
 admob = "23.6.0"
 unity-ads = "4.12.0"
 kotlinx-serialization = "1.7.3"
+coil = "2.6.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version = "1.13.1" }
@@ -51,6 +52,7 @@ coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutin
 admob = { group = "com.google.android.gms", name = "play-services-ads", version.ref = "admob" }
 unity-ads = { group = "com.unity3d.ads", name = "unity-ads", version.ref = "unity-ads" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
+coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

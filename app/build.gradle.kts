@@ -135,4 +135,5 @@ dependencies {
     implementation(libs.admob)
     implementation(libs.unity.ads)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.coil.compose)
 }

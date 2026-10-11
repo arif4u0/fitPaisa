@@ -165,6 +165,19 @@ private fun ProductCard(product: Product, onTap: () -> Unit) {
             .clickable(onClick = onTap)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
+            // Product image (if uploaded).
+            if (!product.imageUrl.isNullOrBlank()) {
+                coil.compose.AsyncImage(
+                    model = product.imageUrl,
+                    contentDescription = product.name,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(140.dp)
+                        .clip(RoundedCornerShape(12.dp)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
+                Spacer(Modifier.height(12.dp))
+            }
             Text(
                 text = product.name,
                 style = MaterialTheme.typography.titleMedium,
