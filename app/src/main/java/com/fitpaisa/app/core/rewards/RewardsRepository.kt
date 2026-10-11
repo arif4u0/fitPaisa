@@ -220,6 +220,10 @@ class RewardsRepository @Inject constructor(
         }
 
     /** Fetches the active product catalog. */
+    /** Last products error (for diagnostics). Null if the last load worked. */
+    var lastProductsError: String? = null
+        private set
+
     suspend fun getProducts(): List<Product> =
         withContext(Dispatchers.IO) {
             try {
@@ -232,6 +236,7 @@ class RewardsRepository @Inject constructor(
                         order("sort_order", Order.ASCENDING)
                     }
                     .decodeList<ProductDto>()
+                lastProductsError = null
                 rows.map { dto ->
                     Product(
                         id = dto.id,
@@ -243,6 +248,7 @@ class RewardsRepository @Inject constructor(
                     )
                 }
             } catch (e: Exception) {
+                lastProductsError = "${e::class.simpleName}: ${e.message}"
                 emptyList()
             }
         }

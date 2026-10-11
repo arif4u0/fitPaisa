@@ -115,11 +115,23 @@ fun RewardsScreen(viewModel: RewardsViewModel = hiltViewModel()) {
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "No rewards right now — check back later.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MutedSage
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "No rewards right now — check back later.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MutedSage
+                        )
+                        // Temporary diagnostic: shows the real error if the query failed.
+                        val err = viewModel.productsError
+                        if (err != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Error: $err",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Red
+                            )
+                        }
+                    }
                 }
             }
             else -> {
@@ -400,6 +412,8 @@ class RewardsViewModel @Inject constructor(
 
     var products by mutableStateOf<List<Product>>(emptyList())
         private set
+    var productsError by mutableStateOf<String?>(null)
+        private set
     var loading by mutableStateOf(true)
         private set
 
@@ -425,6 +439,7 @@ class RewardsViewModel @Inject constructor(
         viewModelScope.launch {
             loading = true
             products = rewardsRepository.getProducts()
+            productsError = rewardsRepository.lastProductsError
             loading = false
         }
     }
