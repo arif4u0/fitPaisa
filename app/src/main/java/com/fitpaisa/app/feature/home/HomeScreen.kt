@@ -229,6 +229,10 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun dismissSpin() {
+        showSpinDialog = false
+    }
+
     /** Checks for a new version; call on every resume so the popup appears. */
     fun checkForUpdates() {
         viewModelScope.launch {
@@ -368,7 +372,7 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
                 activity = ctx as? android.app.Activity,
                 freeSpinAvailable = viewModel.freeSpinAvailable,
                 onFreeSpinUsed = { viewModel.freeSpinAvailable = false },
-                onDismiss = { viewModel.showSpinDialog = false },
+                onDismiss = viewModel::dismissSpin,
                 onPrizeWon = { viewModel.refreshBalance() }
             )
         }
