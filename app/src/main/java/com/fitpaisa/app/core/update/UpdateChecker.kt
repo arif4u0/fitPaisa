@@ -82,34 +82,44 @@ class UpdateChecker @Inject constructor(
     }
 
     /**
-     * Downloads the APK via DownloadManager and prompts install when done.
-     * Returns immediately; the install prompt appears automatically.
+     * Google Drive serves a virus-scan warning page (HTML) instead of the
+     * file when an executable is fetched via drive.google.com/uc?export=download.
+     * DownloadManager would save that HTML as the "APK" and the install would
+     * fail. The direct endpoint honors confirm=t and returns the real bytes
+     * (verified: returns the raw APK from a fresh session).
+     */
+    private fun driveDirectUrl(url: String): String {
+        val uri = Uri.parse(url) ?: return url
+        if (uri.host != "drive.google.com") return url
+        val id = uri.getQueryParameter("id") ?: return url
+        return "https://drive.usercontent.google.com/download?id=$id&export=download&confirm=t"
+    }
+
+    /**
+     * Opens the APK download link in the browser. We used to download via
+     * DownloadManager, but Google Drive now serves a warning page (HTML)
+     * instead of the file for large APKs, which corrupted the download.
+     * The browser handles Drive's confirmation flow correctly.
      */
     fun downloadAndInstall(update: UpdateInfo) {
-        val fileName = "fitpaisa-${update.latestVersion}.apk"
-        val request = DownloadManager.Request(Uri.parse(update.apkUrl)).apply {
-            setTitle("fitPaisa update ${update.latestVersion}")
-            setDescription("Downloading new version…")
-            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-            setMimeType("application/vnd.android.package-archive")
+        // Convert to the Drive file view page (not the direct download URL).
+        val browserUrl = driveViewUrl(update.apkUrl)
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(browserUrl)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val downloadId = dm.enqueue(request)
+        context.startActivity(intent)
+    }
 
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context, intent: Intent) {
-                if (intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1) != downloadId) return
-                ctx.unregisterReceiver(this)
-                promptInstall(fileName)
-            }
-        }
-        ContextCompat.registerReceiver(
-            context,
-            receiver,
-            IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
-            ContextCompat.RECEIVER_NOT_EXPORTED
-        )
+    /**
+     * Converts a drive.google.com/uc?export=download&id=XXX URL to the
+     * file view page: drive.google.com/file/d/XXX/view
+     */
+    private fun driveViewUrl(url: String): String {
+        val uri = Uri.parse(url) ?: return url
+        // Already a view URL? Use as-is.
+        if (url.contains("/file/d/")) return url
+        val id = uri.getQueryParameter("id") ?: return url
+        return "https://drive.google.com/file/d/$id/view"
     }
 
     private fun promptInstall(fileName: String) {
@@ -118,6 +128,12 @@ class UpdateChecker @Inject constructor(
             fileName
         )
         if (!file.exists()) return
+        // Sanity check: an APK is a ZIP, so it must start with the "PK"
+        // magic bytes. If Drive ever serves an HTML warning page again,
+        // don't prompt an install on the broken file.
+        val magic = ByteArray(2)
+        file.inputStream().use { it.read(magic) }
+        if (!(magic[0] == 0x50.toByte() && magic[1] == 0x4B.toByte())) return
         val uri: Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
         } else {
