@@ -254,6 +254,46 @@ serve(async (req: Request) => {
       .eq("id", userId);
   }
 
+  // Daily challenge: if today's eligible steps hit the target and the bonus
+  // hasn't been claimed yet, award bonus coins (available immediately).
+  let challengeBonus = 0;
+  let challengeTarget = 0;
+  {
+    const { data: targetCfg } = await db
+      .from("app_config").select("value").eq("key", "daily_challenge_target").single();
+    const { data: bonusCfg } = await db
+      .from("app_config").select("value").eq("key", "daily_challenge_bonus").single();
+    challengeTarget = parseInt(String(targetCfg?.value ?? "8000"), 10) || 8000;
+    const bonusCoins = parseInt(String(bonusCfg?.value ?? "50"), 10) || 50;
+
+    if (eligibleTotal >= challengeTarget) {
+      const { data: dayRow } = await db
+        .from("daily_steps")
+        .select("challenge_bonus_claimed")
+        .eq("user_id", userId)
+        .eq("local_date", localDate)
+        .maybeSingle();
+      if (!dayRow?.challenge_bonus_claimed) {
+        challengeBonus = bonusCoins;
+        await db.from("ledger_entries").insert({
+          user_id: userId,
+          amount_coins: challengeBonus,
+          state: "available",
+          source_type: "daily_challenge",
+          source_id: `challenge:${userId}:${localDate}`,
+          rule_version: ruleVersion,
+          available_at: new Date().toISOString(),
+          metadata: { target_steps: challengeTarget, eligible_total: eligibleTotal },
+        });
+        await db
+          .from("daily_steps")
+          .update({ challenge_bonus_claimed: true })
+          .eq("user_id", userId)
+          .eq("local_date", localDate);
+      }
+    }
+  }
+
   return json({
     ok: true,
     eligible_total: eligibleTotal,
@@ -264,5 +304,7 @@ serve(async (req: Request) => {
     daily_cap: dailyCap,
     streak_days: streakDays,
     streak_bonus: streakBonus,
+    challenge_target: challengeTarget,
+    challenge_bonus: challengeBonus,
   });
 });

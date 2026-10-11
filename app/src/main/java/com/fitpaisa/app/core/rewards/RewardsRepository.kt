@@ -41,7 +41,8 @@ sealed interface ConvertOutcome {
         val coins: Int,
         val newSteps: Int,
         val streakDays: Int = 0,
-        val streakBonus: Int = 0
+        val streakBonus: Int = 0,
+        val challengeBonus: Int = 0
     ) : ConvertOutcome
     /** Nothing new to convert (already converted, or below 100 steps). */
     data object NothingNew : ConvertOutcome
@@ -179,8 +180,9 @@ class RewardsRepository @Inject constructor(
                 val newSteps = body["new_steps"]?.jsonPrimitive?.intOrNull ?: 0
                 val streakDays = body["streak_days"]?.jsonPrimitive?.intOrNull ?: 0
                 val streakBonus = body["streak_bonus"]?.jsonPrimitive?.intOrNull ?: 0
+                val challengeBonus = body["challenge_bonus"]?.jsonPrimitive?.intOrNull ?: 0
                 if (coins <= 0) ConvertOutcome.NothingNew
-                else ConvertOutcome.Converted(coins, newSteps, streakDays, streakBonus)
+                else ConvertOutcome.Converted(coins, newSteps, streakDays, streakBonus, challengeBonus)
             } catch (e: Exception) {
                 val msg = e.message.orEmpty()
                 if (msg.contains("401") || msg.contains("unauthorized", ignoreCase = true)) {

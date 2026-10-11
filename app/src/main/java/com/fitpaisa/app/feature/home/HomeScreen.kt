@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -86,7 +87,10 @@ data class HomeUiState(
     val lastSyncText: String = "Live Sensor Active",
     val hasPermission: Boolean = true,
     val isSensorAvailable: Boolean = true,
-    val convertState: ConvertUiState = ConvertUiState.Idle
+    val convertState: ConvertUiState = ConvertUiState.Idle,
+    /** Daily challenge: matches app_config daily_challenge_target/bonus (server awards it). */
+    val challengeTarget: Int = 8000,
+    val challengeBonus: Int = 50
 )
 
 @HiltViewModel
@@ -178,7 +182,10 @@ class HomeViewModel @Inject constructor(
                     val bonus = if (outcome.streakBonus > 0) {
                         " +${outcome.streakBonus} streak bonus!"
                     } else ""
-                    base + streak + bonus
+                    val challenge = if (outcome.challengeBonus > 0) {
+                        " 🎯 Challenge complete! +${outcome.challengeBonus} bonus coins!"
+                    } else ""
+                    base + streak + bonus + challenge
                 }
                 ConvertOutcome.NothingNew ->
                     "Nothing new to convert yet — keep walking!"
@@ -318,6 +325,14 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
                 color = MutedSage
             )
         }
+        Spacer(Modifier.height(16.dp))
+
+        ChallengeCard(
+            stepsToday = state.stepsToday,
+            target = state.challengeTarget,
+            bonus = state.challengeBonus,
+            modifier = Modifier.fillMaxWidth()
+        )
         Spacer(Modifier.height(16.dp))
 
         Row(
@@ -589,4 +604,72 @@ private fun dayGreeting(): String = when (LocalTime.now().hour) {
     in 12..16 -> "Good afternoon"
     in 17..21 -> "Good evening"
     else -> "Good night"
+}
+
+/** Today's Challenge card: walk the target steps to earn bonus coins. */
+@Composable
+private fun ChallengeCard(
+    stepsToday: Int,
+    target: Int,
+    bonus: Int,
+    modifier: Modifier = Modifier
+) {
+    val progress = (stepsToday.toFloat() / target.toFloat()).coerceIn(0f, 1f)
+    val completed = stepsToday >= target
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = ForestGreenCard)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Filled.EmojiEvents,
+                        contentDescription = null,
+                        tint = Gold
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "Today's Challenge",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White
+                    )
+                }
+                Text(
+                    text = if (completed) "Done! 🎉" else "+$bonus coins",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Gold
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = if (completed)
+                    "Challenge complete — bonus on its way!"
+                else
+                    "Walk ${formatNumber(target)} steps today to earn $bonus bonus coins.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MutedSage
+            )
+            Spacer(Modifier.height(12.dp))
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp)),
+                color = Gold,
+                trackColor = Color.White.copy(alpha = 0.15f)
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "${formatNumber(stepsToday)} / ${formatNumber(target)} steps",
+                style = MaterialTheme.typography.bodySmall,
+                color = MutedSage
+            )
+        }
+    }
 }
