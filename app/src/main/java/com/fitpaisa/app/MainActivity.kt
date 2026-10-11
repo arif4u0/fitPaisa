@@ -14,9 +14,14 @@ import com.fitpaisa.app.navigation.AppNav
 import com.fitpaisa.app.ui.theme.FitPaisaTheme
 import com.fitpaisa.app.ui.theme.ForestGreen
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject
+    lateinit var notificationScheduler: com.fitpaisa.app.core.notifications.NotificationScheduler
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -24,6 +29,10 @@ class MainActivity : ComponentActivity() {
         window.statusBarColor = ForestGreen.toArgb()
         WindowCompat.getInsetsController(window, window.decorView)
             .isAppearanceLightStatusBars = false
+
+        // Schedule daily walk/convert reminders.
+        notificationScheduler.scheduleDaily()
+        requestNotificationPermission()
 
         setContent {
             FitPaisaTheme {
@@ -33,6 +42,17 @@ class MainActivity : ComponentActivity() {
                 ) {
                     AppNav()
                 }
+            }
+        }
+    }
+
+    /** Asks for notification permission on Android 13+. */
+    private fun requestNotificationPermission() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
             }
         }
     }

@@ -71,6 +71,13 @@ class ProfileViewModel @Inject constructor(
         }
     }
 
+    fun deleteAccount(onDone: () -> Unit) {
+        viewModelScope.launch {
+            authRepository.deleteAccount()
+            onDone()
+        }
+    }
+
     // Referrals
     var referralCode by mutableStateOf<String?>(null)
         private set
@@ -222,6 +229,42 @@ fun ProfileScreen(
                 text = "Sign out",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+
+        // Delete account (with confirmation).
+        var showDeleteConfirm by remember { mutableStateOf(false) }
+        TextButton(
+            onClick = { showDeleteConfirm = true },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                text = "Delete my account",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MutedSage.copy(alpha = 0.7f)
+            )
+        }
+        if (showDeleteConfirm) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showDeleteConfirm = false },
+                title = { Text("Delete account?") },
+                text = {
+                    Text("This permanently deletes your account, coins, and all data. This cannot be undone.")
+                },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            showDeleteConfirm = false
+                            viewModel.deleteAccount(onSignedOut)
+                        }
+                    ) { Text("Delete", color = ErrorRed) }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { showDeleteConfirm = false }) {
+                        Text("Cancel")
+                    }
+                }
             )
         }
     }

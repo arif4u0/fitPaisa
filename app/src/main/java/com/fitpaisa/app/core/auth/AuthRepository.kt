@@ -86,4 +86,27 @@ class AuthRepository @Inject constructor(
         runCatching { client.auth.signOut() }
         sessionStore.clearSession()
     }
+
+    /**
+     * Permanently deletes the account via the delete-account Edge Function.
+     * Returns true on success. The local session is cleared afterwards.
+     */
+    suspend fun deleteAccount(): Boolean {
+        return try {
+            val response = client.functions.invoke(
+                function = com.fitpaisa.app.core.network.EdgeFunctions.DELETE_ACCOUNT,
+                body = kotlinx.serialization.json.buildJsonObject {
+                    put("confirm", true)
+                }
+            )
+            val ok = response.status.value in 200..299
+            if (ok) {
+                runCatching { client.auth.signOut() }
+                sessionStore.clearSession()
+            }
+            ok
+        } catch (e: Exception) {
+            false
+        }
+    }
 }
