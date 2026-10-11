@@ -43,6 +43,7 @@ import androidx.lifecycle.viewModelScope
 import com.fitpaisa.app.core.rewards.AdminOrder
 import com.fitpaisa.app.core.rewards.RewardsRepository
 import com.fitpaisa.app.ui.theme.CreamWhite
+import com.fitpaisa.app.ui.theme.ErrorRed
 import com.fitpaisa.app.ui.theme.ForestGreenCard
 import com.fitpaisa.app.ui.theme.Gold
 import com.fitpaisa.app.ui.theme.MutedSage
@@ -227,24 +228,115 @@ private fun CashoutsTab(viewModel: AdminViewModel) {
 }
 
 @Composable
+private fun AdminProductRow(
+    product: com.fitpaisa.app.core.rewards.Product,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    var showDeleteConfirm by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = ForestGreenCard),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = product.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = CreamWhite
+                )
+                Text(
+                    text = "${product.coinPrice} coins · Stock: ${product.stock}" +
+                        if (!product.isActive) " · Hidden" else "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MutedSage
+                )
+            }
+            TextButton(onClick = onEdit) {
+                Text("Edit", color = Gold)
+            }
+            TextButton(onClick = { showDeleteConfirm = true }) {
+                Text("Delete", color = ErrorRed)
+            }
+        }
+    }
+    if (showDeleteConfirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete \"${product.name}\"?") },
+            text = { Text("This removes it from the shop permanently.") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = { showDeleteConfirm = false; onDelete() }
+                ) { Text("Delete", color = ErrorRed) }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+@Composable
 private fun ProductsTab(viewModel: AdminViewModel) {
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        viewModel.loadAllProducts()
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        // Existing products with edit/delete.
+        Text(
+            text = "Your products",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = CreamWhite
+        )
+        if (viewModel.allProducts.isEmpty()) {
+            Text(
+                text = "No products yet — add your first one below.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MutedSage
+            )
+        } else {
+            viewModel.allProducts.forEach { product ->
+                AdminProductRow(
+                    product = product,
+                    onEdit = { viewModel.startEditProduct(product) },
+                    onDelete = { viewModel.deleteProduct(product.id) }
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
         Text(
             text = "Add a product to the catalog",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             color = CreamWhite
         )
-        ProductForm(onSave = { name, desc, price, stock, active, imageUrl ->
-            viewModel.addProduct(name, desc, price, stock, active, imageUrl)
-        })
+        ProductForm(
+            editingProduct = viewModel.editingProduct,
+            onSave = { name, desc, price, stock, active, imageUrl ->
+                viewModel.saveProduct(name, desc, price, stock, active, imageUrl)
+            },
+            onCancelEdit = { viewModel.cancelEdit() }
+        )
         Text(
-            text = "New products appear in the shop right away. Editing or removing existing products is coming soon.",
+            text = "New products appear in the shop right away.",
             style = MaterialTheme.typography.bodySmall,
             color = MutedSage
         )
@@ -435,16 +527,28 @@ private fun CashoutCard(
 
 @Composable
 private fun ProductForm(
+    editingProduct: com.fitpaisa.app.core.rewards.Product? = null,
+    onCancelEdit: () -> Unit = {},
     onSave: (name: String, description: String, coinPrice: Int, stock: Int, isActive: Boolean, imageUrl: String?) -> Unit
 ) {
-    var name by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var priceText by remember { mutableStateOf("") }
-    var stockText by remember { mutableStateOf("") }
-    var isActive by remember { mutableStateOf(true) }
+    var name by remember { mutableStateOf(editingProduct?.name ?: "") }
+    var description by remember { mutableStateOf(editingProduct?.description ?: "") }
+    var priceText by remember { mutableStateOf(editingProduct?.coinPrice?.toString() ?: "") }
+    var stockText by remember { mutableStateOf(editingProduct?.stock?.toString() ?: "") }
+    var isActive by remember { mutableStateOf(editingProduct?.isActive ?: true) }
     var error by remember { mutableStateOf<String?>(null) }
     var imageUrl by remember { mutableStateOf<String?>(null) }
     var uploading by remember { mutableStateOf(false) }
+    // When switching between add/edit, reset the fields.
+    androidx.compose.runtime.LaunchedEffect(editingProduct?.id) {
+        name = editingProduct?.name ?: ""
+        description = editingProduct?.description ?: ""
+        priceText = editingProduct?.coinPrice?.toString() ?: ""
+        stockText = editingProduct?.stock?.toString() ?: ""
+        isActive = editingProduct?.isActive ?: true
+        imageUrl = null
+        error = null
+    }
     val context = androidx.compose.ui.platform.LocalContext.current
     val viewModel: AdminViewModel = androidx.hilt.navigation.compose.hiltViewModel()
 
@@ -559,7 +663,19 @@ private fun ProductForm(
                     contentColor = OnGold
                 )
             ) {
-                Text("Add Product", fontWeight = FontWeight.Bold)
+                Text(
+                    if (editingProduct != null) "Save Changes" else "Add Product",
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            if (editingProduct != null) {
+                Spacer(Modifier.height(8.dp))
+                TextButton(
+                    onClick = onCancelEdit,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Cancel", color = MutedSage)
+                }
             }
         }
     }
@@ -699,17 +815,62 @@ class AdminViewModel @Inject constructor(
         isActive: Boolean,
         imageUrl: String? = null
     ) {
+        saveProduct(name, description, coinPrice, stock, isActive, imageUrl)
+    }
+
+    // --- Product management (edit/delete) ---
+    var allProducts by mutableStateOf<List<com.fitpaisa.app.core.rewards.Product>>(emptyList())
+        private set
+    var editingProduct by mutableStateOf<com.fitpaisa.app.core.rewards.Product?>(null)
+        private set
+
+    fun loadAllProducts() {
         viewModelScope.launch {
+            allProducts = rewardsRepository.getAllProductsAdmin()
+        }
+    }
+
+    fun startEditProduct(product: com.fitpaisa.app.core.rewards.Product) {
+        editingProduct = product
+    }
+
+    fun cancelEdit() {
+        editingProduct = null
+    }
+
+    fun saveProduct(
+        name: String,
+        description: String,
+        coinPrice: Int,
+        stock: Int,
+        isActive: Boolean,
+        imageUrl: String? = null
+    ) {
+        viewModelScope.launch {
+            val editing = editingProduct
             val ok = rewardsRepository.saveProduct(
-                id = null,
+                id = editing?.id,
                 name = name,
                 description = description,
                 coinPrice = coinPrice,
                 stock = stock,
                 isActive = isActive,
-                imageUrl = imageUrl
+                // Keep the old image if no new one was picked.
+                imageUrl = imageUrl ?: editing?.imageUrl
             )
-            message = if (ok) "Product added to the catalog." else "Something went wrong. Try again."
+            message = if (ok) {
+                if (editing != null) "Product updated." else "Product added to the catalog."
+            } else "Something went wrong. Try again."
+            editingProduct = null
+            loadAllProducts()
+        }
+    }
+
+    fun deleteProduct(id: String) {
+        viewModelScope.launch {
+            val ok = rewardsRepository.deleteProduct(id)
+            message = if (ok) "Product deleted." else "Couldn't delete. Try again."
+            loadAllProducts()
         }
     }
 }

@@ -57,7 +57,8 @@ data class Product(
     val description: String,
     val imageUrl: String?,
     val coinPrice: Int,
-    val stock: Int
+    val stock: Int,
+    val isActive: Boolean = true
 )
 
 /** Outcome of a redeem or cashout request, in plain language. */
@@ -84,7 +85,8 @@ private data class ProductDto(
     val description: String = "",
     @SerialName("image_url") val imageUrl: String? = null,
     @SerialName("coin_price") val coinPrice: Int = 0,
-    val stock: Int = 0
+    val stock: Int = 0,
+    @SerialName("is_active") val isActive: Boolean = true
 )
 
 @Serializable
@@ -246,7 +248,8 @@ class RewardsRepository @Inject constructor(
                         description = dto.description,
                         imageUrl = dto.imageUrl,
                         coinPrice = dto.coinPrice,
-                        stock = dto.stock
+                        stock = dto.stock,
+                        isActive = dto.isActive
                     )
                 }
             } catch (e: Exception) {
@@ -486,6 +489,42 @@ class RewardsRepository @Inject constructor(
                 }
                 true
             } catch (e: Exception) { false }
+        }
+
+    /** Deletes a product permanently. */
+    suspend fun deleteProduct(id: String): Boolean =
+        withContext(Dispatchers.IO) {
+            try {
+                val client = clientProvider.client
+                client.from("products").delete {
+                    filter { eq("id", id) }
+                }
+                true
+            } catch (e: Exception) { false }
+        }
+
+    /** All products including inactive (for admin management). */
+    suspend fun getAllProductsAdmin(): List<Product> =
+        withContext(Dispatchers.IO) {
+            try {
+                val client = clientProvider.client
+                val rows = client.from("products")
+                    .select { order("sort_order", Order.ASCENDING) }
+                    .decodeList<ProductDto>()
+                rows.map { dto ->
+                    Product(
+                        id = dto.id,
+                        name = dto.name,
+                        description = dto.description,
+                        imageUrl = dto.imageUrl,
+                        coinPrice = dto.coinPrice,
+                        stock = dto.stock,
+                        isActive = dto.isActive
+                    )
+                }
+            } catch (e: Exception) {
+                emptyList()
+            }
         }
 
     /**
