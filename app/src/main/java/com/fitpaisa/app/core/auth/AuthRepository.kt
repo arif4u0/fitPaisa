@@ -8,10 +8,14 @@ import androidx.credentials.exceptions.GetCredentialException
 import com.fitpaisa.app.BuildConfig
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.fitpaisa.app.core.network.EdgeFunctions
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.Google
 import io.github.jan.supabase.auth.providers.builtin.IDToken
+import io.github.jan.supabase.functions.functions
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -94,8 +98,8 @@ class AuthRepository @Inject constructor(
     suspend fun deleteAccount(): Boolean {
         return try {
             val response = client.functions.invoke(
-                function = com.fitpaisa.app.core.network.EdgeFunctions.DELETE_ACCOUNT,
-                body = kotlinx.serialization.json.buildJsonObject {
+                function = EdgeFunctions.DELETE_ACCOUNT,
+                body = buildJsonObject {
                     put("confirm", true)
                 }
             )
