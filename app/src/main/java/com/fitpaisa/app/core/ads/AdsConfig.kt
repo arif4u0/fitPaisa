@@ -15,7 +15,7 @@ object AdsConfig {
     // Unity Ads test Game ID (Android). Replace with your real one.
     const val UNITY_GAME_ID = "800394765"
     // Unity Ads test rewarded ad unit ID. Replace with your real one.
-    const val UNITY_REWARDED_AD_UNIT_ID = "BP_Rewarded_Android"
+    const val UNITY_REWARDED_AD_UNIT_ID = "Rewarded_Android_New"
     // Set to false before release.
     const val UNITY_TEST_MODE = true
 }
