@@ -171,7 +171,7 @@ class HomeViewModel @Inject constructor(
             if (!watched) {
                 uiState = uiState.copy(
                     convertState = ConvertUiState.Done(
-                        "Watch the ad to convert your steps into coins."
+                        "Ad not ready: ${adManager.lastError}"
                     )
                 )
                 return@launch

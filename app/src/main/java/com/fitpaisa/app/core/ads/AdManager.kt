@@ -28,6 +28,8 @@ class AdManager @Inject constructor(
     private var isInitialized = false
     private var isLoading = false
     private var isLoaded = false
+    var lastError: String = "Not initialized yet"
+        private set
 
     init {
         UnityAds.initialize(
@@ -45,6 +47,7 @@ class AdManager @Inject constructor(
                     message: String
                 ) {
                     isInitialized = false
+                    lastError = "Init failed: $error - $message"
                 }
             }
         )
@@ -60,6 +63,7 @@ class AdManager @Inject constructor(
                 override fun onUnityAdsAdLoaded(adUnitId: String) {
                     isLoaded = true
                     isLoading = false
+                    lastError = "Ad loaded OK"
                 }
 
                 override fun onUnityAdsFailedToLoad(
@@ -69,6 +73,7 @@ class AdManager @Inject constructor(
                 ) {
                     isLoaded = false
                     isLoading = false
+                    lastError = "Load failed: $error - $message"
                 }
             }
         )
