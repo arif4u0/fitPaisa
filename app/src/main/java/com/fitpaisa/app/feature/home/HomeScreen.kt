@@ -167,8 +167,13 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             uiState = uiState.copy(convertState = ConvertUiState.Converting)
             // Step 1: user must watch a rewarded ad to convert.
+            // (Temporary: if the ad system is broken, allow convert anyway
+            // so the core walk-to-earn loop works while Unity is fixed.)
             val watched = adManager.showRewarded(activity)
-            if (!watched) {
+            val adsBroken = adManager.lastError.contains("INVALID_ARGUMENT") ||
+                    adManager.lastError.contains("Init failed") ||
+                    adManager.lastError == "Not initialized yet"
+            if (!watched && !adsBroken) {
                 uiState = uiState.copy(
                     convertState = ConvertUiState.Done(
                         "Ad not ready: ${adManager.lastError}"
