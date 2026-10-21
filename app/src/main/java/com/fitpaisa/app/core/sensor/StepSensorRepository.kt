@@ -22,6 +22,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.time.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -41,6 +43,7 @@ class StepSensorRepository @Inject constructor(
         val BASELINE_STEPS = intPreferencesKey("baseline_steps")
         val BASELINE_DATE = stringPreferencesKey("baseline_date")
         val LAST_TOTAL_STEPS = intPreferencesKey("last_total_steps")
+        val BANKED_STEPS = intPreferencesKey("banked_steps")
     }
 
     private val sensorManager =
@@ -49,6 +52,10 @@ class StepSensorRepository @Inject constructor(
         sensorManager?.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val stateMutex = Mutex()
+
+    @Volatile
+    private var isRegistered = false
 
     private val _todaySteps = MutableStateFlow(0)
     val todaySteps: StateFlow<Int> = _todaySteps.asStateFlow()
@@ -62,9 +69,7 @@ class StepSensorRepository @Inject constructor(
     init {
         scope.launch {
             loadInitialSteps()
-            if (hasPermission.value && stepCounterSensor != null) {
-                registerSensor()
-            }
+            startTracking()
         }
     }
 
@@ -80,25 +85,34 @@ class StepSensorRepository @Inject constructor(
     }
 
     fun updatePermissionStatus() {
-        val granted = checkPermission()
-        _hasPermission.value = granted
-        if (granted && stepCounterSensor != null) {
+        _hasPermission.value = checkPermission()
+        if (_hasPermission.value) startTracking() else unregisterSensor()
+    }
+
+    /** Starts (or keeps) the hardware step-counter listener running. */
+    fun startTracking() {
+        _hasPermission.value = checkPermission()
+        if (_hasPermission.value && stepCounterSensor != null) {
             registerSensor()
         }
     }
 
+    @Synchronized
     private fun registerSensor() {
-        stepCounterSensor?.let { sensor ->
-            sensorManager?.registerListener(
-                this,
-                sensor,
-                SensorManager.SENSOR_DELAY_UI
-            )
-        }
+        if (isRegistered) return
+        val sensor = stepCounterSensor ?: return
+        val manager = sensorManager ?: return
+        isRegistered = manager.registerListener(
+            this,
+            sensor,
+            SensorManager.SENSOR_DELAY_NORMAL
+        )
     }
 
+    @Synchronized
     fun unregisterSensor() {
         sensorManager?.unregisterListener(this)
+        isRegistered = false
     }
 
     /**
@@ -116,17 +130,19 @@ class StepSensorRepository @Inject constructor(
     }
 
     private suspend fun loadInitialSteps() {
-        val prefs = context.sensorDataStore.data.first()
-        val savedDate = prefs[Keys.BASELINE_DATE]
-        val todayStr = LocalDate.now().toString()
-        val savedBaseline = prefs[Keys.BASELINE_STEPS] ?: -1
-        val lastTotal = prefs[Keys.LAST_TOTAL_STEPS] ?: 0
+        stateMutex.withLock {
+            val prefs = context.sensorDataStore.data.first()
+            val savedDate = prefs[Keys.BASELINE_DATE]
+            val todayStr = LocalDate.now().toString()
+            val savedBaseline = prefs[Keys.BASELINE_STEPS] ?: -1
+            val lastTotal = prefs[Keys.LAST_TOTAL_STEPS] ?: 0
+            val banked = prefs[Keys.BANKED_STEPS] ?: 0
 
-        if (savedDate == todayStr && savedBaseline >= 0) {
-            val calculated = (lastTotal - savedBaseline).coerceAtLeast(0)
-            _todaySteps.value = calculated
-        } else {
-            _todaySteps.value = 0
+            _todaySteps.value = if (savedDate == todayStr && savedBaseline >= 0) {
+                banked + (lastTotal - savedBaseline).coerceAtLeast(0)
+            } else {
+                0
+            }
         }
     }
 
@@ -135,30 +151,62 @@ class StepSensorRepository @Inject constructor(
         val currentHardwareTotal = event.values.getOrNull(0)?.toInt() ?: return
 
         scope.launch {
-            val todayStr = LocalDate.now().toString()
-            val prefs = context.sensorDataStore.data.first()
-            var savedBaseline = prefs[Keys.BASELINE_STEPS] ?: -1
-            val savedDate = prefs[Keys.BASELINE_DATE]
-            val lastTotal = prefs[Keys.LAST_TOTAL_STEPS] ?: 0
+            stateMutex.withLock {
+                val todayStr = LocalDate.now().toString()
+                val prefs = context.sensorDataStore.data.first()
+                var baseline = prefs[Keys.BASELINE_STEPS] ?: -1
+                var banked = prefs[Keys.BANKED_STEPS] ?: 0
+                val savedDate = prefs[Keys.BASELINE_DATE]
+                val lastTotal = prefs[Keys.LAST_TOTAL_STEPS] ?: 0
+                var mustPersist = false
 
-            if (savedDate != todayStr || savedBaseline < 0 || currentHardwareTotal < savedBaseline) {
-                // New day or device rebooted (hardware counter reset)
-                savedBaseline = currentHardwareTotal
-                context.sensorDataStore.edit {
-                    it[Keys.BASELINE_STEPS] = savedBaseline
-                    it[Keys.BASELINE_DATE] = todayStr
-                    it[Keys.LAST_TOTAL_STEPS] = currentHardwareTotal
+                when {
+                    baseline < 0 -> {
+                        // First reading ever: this is the starting point.
+                        baseline = currentHardwareTotal
+                        banked = 0
+                        mustPersist = true
+                    }
+                    savedDate != todayStr -> {
+                        // Midnight passed while the app was in the background.
+                        // The last saved hardware total is the closest known
+                        // midnight point, so steps after it belong to today.
+                        // Do NOT use the current total as the new baseline:
+                        // that used to erase every step walked before the
+                        // user opened the app for the first time that day.
+                        baseline = if (lastTotal > 0 && currentHardwareTotal >= lastTotal) {
+                            lastTotal
+                        } else {
+                            currentHardwareTotal
+                        }
+                        banked = 0
+                        mustPersist = true
+                    }
+                    currentHardwareTotal < baseline -> {
+                        // The phone rebooted today and the hardware counter
+                        // restarted. Bank the previous segment, then start a
+                        // new segment from the rebooted counter.
+                        banked += (lastTotal - baseline).coerceAtLeast(0)
+                        baseline = currentHardwareTotal
+                        mustPersist = true
+                    }
+                    currentHardwareTotal - lastTotal >= PERSIST_EVERY_STEPS -> {
+                        mustPersist = true
+                    }
                 }
-            } else if (currentHardwareTotal - lastTotal >= PERSIST_EVERY_STEPS) {
-                // Throttled persist: the baseline math recovers the exact count
-                // from the hardware counter anyway, so every step need not hit storage.
-                context.sensorDataStore.edit {
-                    it[Keys.LAST_TOTAL_STEPS] = currentHardwareTotal
+
+                if (mustPersist) {
+                    context.sensorDataStore.edit {
+                        it[Keys.BASELINE_STEPS] = baseline
+                        it[Keys.BASELINE_DATE] = todayStr
+                        it[Keys.LAST_TOTAL_STEPS] = currentHardwareTotal
+                        it[Keys.BANKED_STEPS] = banked
+                    }
                 }
+
+                _todaySteps.value = banked +
+                    (currentHardwareTotal - baseline).coerceAtLeast(0)
             }
-
-            val stepsForToday = (currentHardwareTotal - savedBaseline).coerceAtLeast(0)
-            _todaySteps.value = stepsForToday
         }
     }
 
