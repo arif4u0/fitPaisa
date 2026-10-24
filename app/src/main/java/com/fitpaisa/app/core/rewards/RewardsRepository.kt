@@ -35,7 +35,10 @@ data class BalanceResponse(
     val maturingCoins: Int = 0,
     val level: Int = 1,
     val levelName: String = "Starter",
-    val lifetimeSteps: Long = 0
+    val lifetimeSteps: Long = 0,
+    val dailyAdsWatched: Int = 0,
+    val dailyAdLimit: Int = 5,
+    val dailyAdCoins: Int = 10
 )
 
 /** Outcome of a Convert tap, in plain language for the UI. */
@@ -223,10 +226,69 @@ class RewardsRepository @Inject constructor(
                     maturingCoins = body["maturing_coins"]?.jsonPrimitive?.intOrNull ?: 0,
                     level = body["level"]?.jsonPrimitive?.intOrNull ?: 1,
                     levelName = body["level_name"]?.jsonPrimitive?.contentOrNull ?: "Starter",
-                    lifetimeSteps = body["lifetime_steps"]?.jsonPrimitive?.longOrNull ?: 0
+                    lifetimeSteps = body["lifetime_steps"]?.jsonPrimitive?.longOrNull ?: 0,
+                    dailyAdsWatched = body["daily_ads_watched"]?.jsonPrimitive?.intOrNull ?: 0,
+                    dailyAdLimit = body["daily_ad_limit"]?.jsonPrimitive?.intOrNull ?: 5,
+                    dailyAdCoins = body["daily_ad_coins"]?.jsonPrimitive?.intOrNull ?: 10
                 )
             } catch (e: Exception) {
                 BalanceResponse()
+            }
+        }
+
+    /** Outcome of one Daily Ads watch (server-enforced limit). */
+    sealed interface AdRewardOutcome {
+        data class Credited(val coins: Int, val watched: Int, val limit: Int) : AdRewardOutcome
+        data class LimitReached(val watched: Int, val limit: Int) : AdRewardOutcome
+        data class Failed(val message: String) : AdRewardOutcome
+    }
+
+    /**
+     * Claims coins for one fully watched Daily Ad. The server decides
+     * the coins and enforces the level's daily limit — the phone never does.
+     * Call this only after the ad SDK reports the ad was watched to the end.
+     */
+    suspend fun watchAd(): AdRewardOutcome =
+        withContext(Dispatchers.IO) {
+            try {
+                val client = clientProvider.client
+                client.auth.awaitInitialization()
+                if (client.auth.currentSessionOrNull() == null) {
+                    return@withContext AdRewardOutcome.Failed(
+                        "You don't look signed in (no session). Please sign in again."
+                    )
+                }
+                val response = client.functions.invoke(
+                    function = EdgeFunctions.WATCH_AD,
+                    body = buildJsonObject { }
+                )
+                if (response.status.value !in 200..299) {
+                    return@withContext AdRewardOutcome.Failed(
+                        "Server busy (code ${response.status.value}). Try again in a bit."
+                    )
+                }
+                val body = json.parseToJsonElement(response.bodyAsText()).jsonObject
+                if (body["ok"]?.jsonPrimitive?.booleanOrNull == true) {
+                    AdRewardOutcome.Credited(
+                        coins = body["coins"]?.jsonPrimitive?.intOrNull ?: 0,
+                        watched = body["watched_today"]?.jsonPrimitive?.intOrNull ?: 0,
+                        limit = body["daily_ad_limit"]?.jsonPrimitive?.intOrNull ?: 5
+                    )
+                } else if (body["error"]?.jsonPrimitive?.contentOrNull == "limit_reached") {
+                    AdRewardOutcome.LimitReached(
+                        watched = body["watched_today"]?.jsonPrimitive?.intOrNull ?: 0,
+                        limit = body["daily_ad_limit"]?.jsonPrimitive?.intOrNull ?: 5
+                    )
+                } else {
+                    AdRewardOutcome.Failed(
+                        "Couldn't claim the ad reward. Try again."
+                    )
+                }
+            } catch (e: Exception) {
+                AdRewardOutcome.Failed(
+                    "Couldn't reach the server (${e.message ?: "network error"}). " +
+                        "Check your internet and try again."
+                )
             }
         }
 

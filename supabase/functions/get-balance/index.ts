@@ -70,9 +70,24 @@ serve(async (req: Request) => {
   const level: number = (profile?.level as number) ?? 1;
   const { data: levelRow } = await db
     .from("levels")
-    .select("name")
+    .select("name, daily_ad_limit, ad_bonus_multiplier")
     .eq("level", level)
     .maybeSingle();
+
+  // Daily Ads status for today (Pakistan day, server-counted).
+  const pktToday = new Date().toLocaleDateString("en-CA", {
+    timeZone: "Asia/Karachi",
+  });
+  const dailyAdLimit: number = (levelRow?.daily_ad_limit as number) ?? 5;
+  const dailyAdCoins: number = Math.floor(
+    10 * Number(levelRow?.ad_bonus_multiplier ?? 1),
+  );
+  const { data: adRows } = await db
+    .from("ad_watches")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("local_date", pktToday);
+  const dailyAdsWatched: number = (adRows ?? []).length;
 
   // Coins still maturing inside the reward hold window.
   const { data: maturingRows } = await db
@@ -93,5 +108,8 @@ serve(async (req: Request) => {
     level,
     level_name: (levelRow?.name as string) ?? "Starter",
     lifetime_steps: (profile?.lifetime_steps as number) ?? 0,
+    daily_ads_watched: dailyAdsWatched,
+    daily_ad_limit: dailyAdLimit,
+    daily_ad_coins: dailyAdCoins,
   });
 });

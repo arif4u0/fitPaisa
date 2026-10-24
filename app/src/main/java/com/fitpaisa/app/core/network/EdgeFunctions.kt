@@ -17,4 +17,5 @@ object EdgeFunctions {
     const val REQUEST_CASHOUT = "request-cashout"
     const val CLAIM_REFERRAL = "claim-referral"
     const val SPIN_WHEEL = "spin-wheel"
+    const val WATCH_AD = "watch-ad"
 }

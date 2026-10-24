@@ -94,6 +94,12 @@ data class HomeUiState(
     val hasPermission: Boolean = true,
     val isSensorAvailable: Boolean = true,
     val convertState: ConvertUiState = ConvertUiState.Idle,
+    /** Daily Ads: server-counted watches today, level limit, coins per ad. */
+    val dailyAdsWatched: Int = 0,
+    val dailyAdLimit: Int = 5,
+    val dailyAdCoins: Int = 10,
+    val dailyAdBusy: Boolean = false,
+    val dailyAdMessage: String? = null,
     /** Daily challenge: matches app_config daily_challenge_target/bonus (server awards it). */
     val challengeTarget: Int = 8000,
     val challengeBonus: Int = 50
@@ -157,9 +163,78 @@ class HomeViewModel @Inject constructor(
                 balanceLoaded = true,
                 level = if (b.ok) b.level else uiState.level,
                 levelName = if (b.ok) b.levelName else uiState.levelName,
-                lifetimeSteps = if (b.ok) b.lifetimeSteps else uiState.lifetimeSteps
+                lifetimeSteps = if (b.ok) b.lifetimeSteps else uiState.lifetimeSteps,
+                dailyAdsWatched = if (b.ok) b.dailyAdsWatched else uiState.dailyAdsWatched,
+                dailyAdLimit = if (b.ok) b.dailyAdLimit else uiState.dailyAdLimit,
+                dailyAdCoins = if (b.ok) b.dailyAdCoins else uiState.dailyAdCoins
             )
         }
+    }
+
+    /**
+     * Daily Ads tap: show a rewarded ad, and only if it was watched to
+     * the end, claim the coins from the server (which enforces the
+     * level's daily limit). No ad watched = no coins, unlike Convert's
+     * temporary unavailable-ad bypass.
+     */
+    fun onWatchAdClicked(activity: android.app.Activity) {
+        if (uiState.dailyAdBusy) return
+        if (uiState.dailyAdsWatched >= uiState.dailyAdLimit) {
+            uiState = uiState.copy(
+                dailyAdMessage = "You have watched all of today's ads. Come back tomorrow!"
+            )
+            return
+        }
+        viewModelScope.launch {
+            uiState = uiState.copy(dailyAdBusy = true, dailyAdMessage = null)
+            val adOutcome = adManager.showRewarded(activity)
+            when (adOutcome) {
+                com.fitpaisa.app.core.ads.AdOutcome.SKIPPED -> {
+                    uiState = uiState.copy(
+                        dailyAdBusy = false,
+                        dailyAdMessage = "You closed the ad early. Watch it fully to earn coins."
+                    )
+                }
+                com.fitpaisa.app.core.ads.AdOutcome.NOT_READY -> {
+                    uiState = uiState.copy(
+                        dailyAdBusy = false,
+                        dailyAdMessage = "No ad available right now — try again in a bit."
+                    )
+                }
+                com.fitpaisa.app.core.ads.AdOutcome.WATCHED -> {
+                    when (val outcome = rewardsRepository.watchAd()) {
+                        is RewardsRepository.AdRewardOutcome.Credited -> {
+                            uiState = uiState.copy(
+                                dailyAdBusy = false,
+                                dailyAdMessage = "+${outcome.coins} FitCoins! " +
+                                    "(${outcome.watched}/${outcome.limit} ads today)",
+                                dailyAdsWatched = outcome.watched,
+                                dailyAdLimit = outcome.limit
+                            )
+                            refreshBalance()
+                        }
+                        is RewardsRepository.AdRewardOutcome.LimitReached -> {
+                            uiState = uiState.copy(
+                                dailyAdBusy = false,
+                                dailyAdMessage = "You have watched all of today's ads. Come back tomorrow!",
+                                dailyAdsWatched = outcome.watched,
+                                dailyAdLimit = outcome.limit
+                            )
+                        }
+                        is RewardsRepository.AdRewardOutcome.Failed -> {
+                            uiState = uiState.copy(
+                                dailyAdBusy = false,
+                                dailyAdMessage = outcome.message
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun dismissDailyAdMessage() {
+        uiState = uiState.copy(dailyAdMessage = null)
     }
 
     /**
@@ -366,6 +441,23 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
         // Lucky Spin entry card.
         SpinEntryCard(
             onClick = { viewModel.openSpin() },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(16.dp))
+
+        // Daily Ads: watch rewarded ads up to the level's daily limit.
+        DailyAdsCard(
+            watched = state.dailyAdsWatched,
+            limit = state.dailyAdLimit,
+            coinsPerAd = state.dailyAdCoins,
+            levelName = state.levelName,
+            busy = state.dailyAdBusy,
+            message = state.dailyAdMessage,
+            onWatch = {
+                val activity = context as? android.app.Activity
+                if (activity != null) viewModel.onWatchAdClicked(activity)
+            },
+            onDismissMessage = viewModel::dismissDailyAdMessage,
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(16.dp))
@@ -653,6 +745,105 @@ private fun dayGreeting(): String = when (LocalTime.now().hour) {
     in 12..16 -> "Good afternoon"
     in 17..21 -> "Good evening"
     else -> "Good night"
+}
+
+/** Daily Ads card: watch rewarded ads up to the level's daily limit. */
+@Composable
+private fun DailyAdsCard(
+    watched: Int,
+    limit: Int,
+    coinsPerAd: Int,
+    levelName: String,
+    busy: Boolean,
+    message: String?,
+    onWatch: () -> Unit,
+    onDismissMessage: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val remaining = (limit - watched).coerceAtLeast(0)
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = ForestGreenCard)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = "📺", fontSize = 28.sp)
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "Daily Ads",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "$levelName · +$coinsPerAd coins per ad",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MutedSage
+                        )
+                    }
+                }
+                Text(
+                    text = "$watched/$limit",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Gold
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = if (remaining > 0) {
+                    "$remaining ad${if (remaining == 1) "" else "s"} left today"
+                } else {
+                    "All ads watched today — come back tomorrow!"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MutedSage
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = onWatch,
+                enabled = remaining > 0 && !busy,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Gold,
+                    contentColor = OnGold,
+                    disabledContainerColor = Gold.copy(alpha = 0.25f),
+                    disabledContentColor = CreamWhite.copy(alpha = 0.5f)
+                ),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+            ) {
+                Text(
+                    text = if (busy) {
+                        "Loading ad…"
+                    } else if (remaining > 0) {
+                        "Watch Ad (+$coinsPerAd coins)"
+                    } else {
+                        "All ads watched today 🎉"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            if (message != null) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Gold
+                )
+                LaunchedEffect(message) {
+                    kotlinx.coroutines.delay(4000)
+                    onDismissMessage()
+                }
+            }
+        }
+    }
 }
 
 /** Entry card that opens the Lucky Spin dialog. */
