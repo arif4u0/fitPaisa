@@ -61,6 +61,19 @@ serve(async (req: Request) => {
     p_user_id: userId,
   });
 
+  // Server level and lifetime steps (the app used to hard-code Level 1).
+  const { data: profile } = await db
+    .from("profiles")
+    .select("level, lifetime_steps")
+    .eq("id", userId)
+    .maybeSingle();
+  const level: number = (profile?.level as number) ?? 1;
+  const { data: levelRow } = await db
+    .from("levels")
+    .select("name")
+    .eq("level", level)
+    .maybeSingle();
+
   // Coins still maturing inside the reward hold window.
   const { data: maturingRows } = await db
     .from("ledger_entries")
@@ -77,5 +90,8 @@ serve(async (req: Request) => {
     ok: true,
     available_coins: (available as number) ?? 0,
     maturing_coins: maturing,
+    level,
+    level_name: (levelRow?.name as string) ?? "Starter",
+    lifetime_steps: (profile?.lifetime_steps as number) ?? 0,
   });
 });

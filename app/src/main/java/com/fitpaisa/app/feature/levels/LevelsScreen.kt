@@ -36,7 +36,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.launch
 import com.fitpaisa.app.core.economy.EconomyConfig
 import com.fitpaisa.app.core.economy.LEVELS
-import com.fitpaisa.app.core.ui.PilotData
+import com.fitpaisa.app.core.rewards.RewardsRepository
 import com.fitpaisa.app.ui.theme.CreamWhite
 import com.fitpaisa.app.ui.theme.ForestGreenCard
 import com.fitpaisa.app.ui.theme.Gold
@@ -49,13 +49,16 @@ import com.fitpaisa.app.ui.theme.formatNumber
  * locked levels show their lifetime-step requirement plus the daily perks
  * each tier unlocks. All numbers come from [EconomyConfig].
  *
- * M1: current level comes from the server profile; tiers mirror
- * supabase/seed.sql.
+ * The current level and lifetime steps now come from the server profile
+ * (via get-balance), not from a placeholder.
  */
 @Composable
-fun LevelsScreen() {
-    // M1: replace with the server-provided level.
-    val currentLevel = PilotData.LEVEL
+fun LevelsScreen(
+    levelViewModel: LevelViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+) {
+    val currentLevel = levelViewModel.level
+    val lifetimeSteps = levelViewModel.lifetimeSteps
+    val nextLevel = LEVELS.firstOrNull { it.number > currentLevel }
 
     Column(
         modifier = Modifier
@@ -76,6 +79,25 @@ fun LevelsScreen() {
             style = MaterialTheme.typography.bodyMedium,
             color = MutedSage
         )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = "Lifetime steps: ${formatNumber(lifetimeSteps.toInt())}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = CreamWhite
+        )
+        if (nextLevel != null) {
+            Text(
+                text = "${formatNumber((nextLevel.lifetimeStepsRequired - lifetimeSteps).coerceAtLeast(0).toInt())} more steps to Level ${nextLevel.number} · ${nextLevel.name}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Gold
+            )
+        } else {
+            Text(
+                text = "You reached the highest level.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Gold
+            )
+        }
         Spacer(Modifier.height(16.dp))
 
         // Weekly leaderboard.
@@ -149,12 +171,40 @@ fun LevelsScreen() {
     }
 }
 
+@HiltViewModel
+class LevelViewModel @Inject constructor(
+    private val rewardsRepository: RewardsRepository
+) : ViewModel() {
+    var level by mutableStateOf(1)
+        private set
+    var levelName by mutableStateOf("Starter")
+        private set
+    var lifetimeSteps by mutableStateOf(0L)
+        private set
+
+    init {
+        refresh()
+    }
+
+    fun refresh() {
+        viewModelScope.launch {
+            val balance = rewardsRepository.getBalance()
+            if (balance.ok) {
+                level = balance.level
+                levelName = balance.levelName
+                lifetimeSteps = balance.lifetimeSteps
+            }
+        }
+    }
+}
+
 /** Weekly leaderboard: top walkers this week. */
 @Composable
 private fun WeeklyLeaderboard(
     viewModel: LeaderboardViewModel = androidx.hilt.navigation.compose.hiltViewModel()
 ) {
     val entries = viewModel.entries
+    val leaderboardError = viewModel.error
     Card(
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = ForestGreenCard),
@@ -185,7 +235,9 @@ private fun WeeklyLeaderboard(
             Spacer(Modifier.height(12.dp))
             if (entries.isEmpty()) {
                 Text(
-                    text = "No walkers yet this week — be the first!",
+                    text = leaderboardError?.let {
+                        "Couldn't load the leaderboard. Pull the screen again or check your connection."
+                    } ?: "No walkers yet this week — be the first!",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MutedSage
                 )
@@ -232,6 +284,8 @@ class LeaderboardViewModel @Inject constructor(
 ) : ViewModel() {
     var entries by mutableStateOf<List<com.fitpaisa.app.core.rewards.LeaderboardEntry>>(emptyList())
         private set
+    var error by mutableStateOf<String?>(null)
+        private set
 
     init {
         refresh()
@@ -240,6 +294,7 @@ class LeaderboardViewModel @Inject constructor(
     fun refresh() {
         viewModelScope.launch {
             entries = rewardsRepository.getLeaderboard()
+            error = rewardsRepository.lastLeaderboardError
         }
     }
 }

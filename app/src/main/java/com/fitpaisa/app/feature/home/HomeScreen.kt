@@ -89,6 +89,7 @@ data class HomeUiState(
     val balanceLoaded: Boolean = false,
     val level: Int = PilotData.LEVEL,
     val levelName: String = PilotData.LEVEL_NAME,
+    val lifetimeSteps: Long = 0,
     val lastSyncText: String = "Live Sensor Active",
     val hasPermission: Boolean = true,
     val isSensorAvailable: Boolean = true,
@@ -146,14 +147,17 @@ class HomeViewModel @Inject constructor(
         refreshBalance()
     }
 
-    /** Pulls the real balance from the server ledger. */
+    /** Pulls the real balance and server level from the server. */
     fun refreshBalance() {
         viewModelScope.launch {
             val b = rewardsRepository.getBalance()
             uiState = uiState.copy(
                 coins = b.availableCoins,
                 maturingCoins = b.maturingCoins,
-                balanceLoaded = true
+                balanceLoaded = true,
+                level = if (b.ok) b.level else uiState.level,
+                levelName = if (b.ok) b.levelName else uiState.levelName,
+                lifetimeSteps = if (b.ok) b.lifetimeSteps else uiState.lifetimeSteps
             )
         }
     }
@@ -166,17 +170,15 @@ class HomeViewModel @Inject constructor(
         if (uiState.convertState == ConvertUiState.Converting) return
         viewModelScope.launch {
             uiState = uiState.copy(convertState = ConvertUiState.Converting)
-            // Step 1: user must watch a rewarded ad to convert.
-            // (Temporary: if the ad system is broken, allow convert anyway
-            // so the core walk-to-earn loop works while Unity is fixed.)
-            val watched = adManager.showRewarded(activity)
-            val adsBroken = adManager.lastError.contains("INVALID_ARGUMENT") ||
-                    adManager.lastError.contains("Init failed") ||
-                    adManager.lastError == "Not initialized yet"
-            if (!watched && !adsBroken) {
+            // Step 1: try the rewarded ad.
+            // Temporary Unity workaround: if no ad is available, do not
+            // block the core conversion. Only a started ad that the user
+            // closes early still blocks it.
+            val adOutcome = adManager.showRewarded(activity)
+            if (adOutcome == com.fitpaisa.app.core.ads.AdOutcome.SKIPPED) {
                 uiState = uiState.copy(
                     convertState = ConvertUiState.Done(
-                        "Ad not ready: ${adManager.lastError}"
+                        "You closed the ad early. Watch it fully to convert."
                     )
                 )
                 return@launch

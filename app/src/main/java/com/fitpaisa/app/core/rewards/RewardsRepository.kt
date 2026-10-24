@@ -31,7 +31,10 @@ import javax.inject.Singleton
 data class BalanceResponse(
     val ok: Boolean = false,
     val availableCoins: Int = 0,
-    val maturingCoins: Int = 0
+    val maturingCoins: Int = 0,
+    val level: Int = 1,
+    val levelName: String = "Starter",
+    val lifetimeSteps: Long = 0
 )
 
 /** Outcome of a Convert tap, in plain language for the UI. */
@@ -216,7 +219,10 @@ class RewardsRepository @Inject constructor(
                 BalanceResponse(
                     ok = body["ok"]?.jsonPrimitive?.booleanOrNull == true,
                     availableCoins = body["available_coins"]?.jsonPrimitive?.intOrNull ?: 0,
-                    maturingCoins = body["maturing_coins"]?.jsonPrimitive?.intOrNull ?: 0
+                    maturingCoins = body["maturing_coins"]?.jsonPrimitive?.intOrNull ?: 0,
+                    level = body["level"]?.jsonPrimitive?.intOrNull ?: 1,
+                    levelName = body["level_name"]?.jsonPrimitive?.contentOrNull ?: "Starter",
+                    lifetimeSteps = body["lifetime_steps"]?.jsonPrimitive?.longOrNull ?: 0
                 )
             } catch (e: Exception) {
                 BalanceResponse()
@@ -629,14 +635,20 @@ class RewardsRepository @Inject constructor(
         }
 
     /** Fetches the weekly leaderboard (top walkers this week). */
+    var lastLeaderboardError: String? = null
+        private set
+
     suspend fun getLeaderboard(): List<LeaderboardEntry> =
         withContext(Dispatchers.IO) {
             try {
                 val client = clientProvider.client
-                client.from("weekly_leaderboard")
+                val rows = client.from("weekly_leaderboard")
                     .select()
                     .decodeList<LeaderboardEntry>()
+                lastLeaderboardError = null
+                rows
             } catch (e: Exception) {
+                lastLeaderboardError = "${e::class.simpleName}: ${e.message}"
                 emptyList()
             }
         }

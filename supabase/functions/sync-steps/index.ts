@@ -113,11 +113,20 @@ serve(async (req: Request) => {
   if (ruleErr || !rule) return json({ error: "no_active_rule" }, 500);
 
   // User's current level -> per-level daily step cap.
-  const { data: profile } = await db
+  // If the profile row is missing (sign-in trigger did not run), create it
+  // so lifetime steps, levels and the leaderboard can track this user.
+  let { data: profile } = await db
     .from("profiles")
     .select("level, lifetime_steps")
     .eq("id", userId)
     .maybeSingle();
+  if (!profile) {
+    await db.from("profiles").upsert(
+      { id: userId, level: 1, lifetime_steps: 0 },
+      { onConflict: "id", ignoreDuplicates: true },
+    );
+    profile = { level: 1, lifetime_steps: 0 };
+  }
   const userLevel: number = (profile?.level as number) ?? 1;
   const { data: levelRow } = await db
     .from("levels")
@@ -201,6 +210,7 @@ serve(async (req: Request) => {
   }
 
   // Advance lifetime steps and recompute level from thresholds.
+  let finalLevel = userLevel;
   if (newSteps > 0) {
     const newLifetime: number = ((profile?.lifetime_steps as number) ?? 0) + newSteps;
     const { data: newLevelRow } = await db
@@ -211,6 +221,7 @@ serve(async (req: Request) => {
       .limit(1)
       .maybeSingle();
     const newLevel: number = (newLevelRow?.level as number) ?? userLevel;
+    finalLevel = newLevel;
     await db
       .from("profiles")
       .update({ lifetime_steps: newLifetime, level: newLevel })
@@ -318,7 +329,7 @@ serve(async (req: Request) => {
     new_steps: newSteps,
     coins_held: coins,
     ledger_id: ledgerId,
-    level: userLevel,
+    level: finalLevel,
     daily_cap: dailyCap,
     streak_days: streakDays,
     streak_bonus: streakBonus,

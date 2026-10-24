@@ -80,21 +80,25 @@ class AdManager @Inject constructor(
     }
 
     /**
-     * Shows the rewarded ad. Returns true only if the user watched it to the
-     * end, false otherwise.
+     * Shows the rewarded ad.
+     *
+     * The old Boolean result mixed up two very different failures: an ad
+     * that was unavailable, and an ad the user closed early. Callers need
+     * to tell them apart, because an unavailable ad should not block the
+     * core walk-to-earn loop while Unity is unreliable.
      */
-    suspend fun showRewarded(activity: Activity): Boolean =
+    suspend fun showRewarded(activity: Activity): AdOutcome =
         suspendCancellableCoroutine { cont ->
             if (!isLoaded) {
                 preload()
-                cont.resume(false)
+                cont.resume(AdOutcome.NOT_READY)
                 return@suspendCancellableCoroutine
             }
             isLoaded = false // consume it
             preload() // load the next one
 
             var settled = false
-            fun settle(result: Boolean) {
+            fun settle(result: AdOutcome) {
                 if (!settled) {
                     settled = true
                     cont.resume(result)
@@ -111,7 +115,8 @@ class AdManager @Inject constructor(
                         error: UnityAds.UnityAdsShowError,
                         message: String
                     ) {
-                        settle(false)
+                        lastError = "Show failed: $error - $message"
+                        settle(AdOutcome.NOT_READY)
                     }
 
                     override fun onUnityAdsShowStart(adUnitId: String) {}
@@ -123,7 +128,13 @@ class AdManager @Inject constructor(
                         state: UnityAds.UnityAdsShowCompletionState
                     ) {
                         // COMPLETED = watched to the end.
-                        settle(state == UnityAds.UnityAdsShowCompletionState.COMPLETED)
+                        settle(
+                            if (state == UnityAds.UnityAdsShowCompletionState.COMPLETED) {
+                                AdOutcome.WATCHED
+                            } else {
+                                AdOutcome.SKIPPED
+                            }
+                        )
                     }
                 }
             )
@@ -131,4 +142,16 @@ class AdManager @Inject constructor(
 
     /** True if an ad is preloaded and ready to show. */
     fun isReady(): Boolean = isLoaded
+}
+
+/** What happened when a rewarded ad was requested. */
+enum class AdOutcome {
+    /** The user watched the ad to the end. */
+    WATCHED,
+
+    /** No ad was ready or it failed to load/show. Not the user's fault. */
+    NOT_READY,
+
+    /** An ad started but the user closed it before it finished. */
+    SKIPPED
 }

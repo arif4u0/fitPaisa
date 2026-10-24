@@ -26,8 +26,8 @@ android {
         applicationId = "com.fitpaisa.app"
         minSdk = 28 // Health Connect requirement (M1)
         targetSdk = 34
-        versionCode = 5
-        versionName = "1.1.2"
+        versionCode = 6
+        versionName = "1.1.3"
 
         buildConfigField("String", "SUPABASE_URL", "\"${configValue("supabase.url", "SUPABASE_URL", "YOUR_SUPABASE_URL")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${configValue("supabase.anon.key", "SUPABASE_ANON_KEY", "YOUR_SUPABASE_ANON_KEY")}\"")

@@ -153,8 +153,15 @@ fun SpinWheelDialog(
                         OutlinedButton(onClick = {
                             if (activity != null) {
                                 scope.launch {
-                                    val watched = adManager.showRewarded(activity)
-                                    if (watched) doSpin("ad")
+                                    when (adManager.showRewarded(activity)) {
+                                        com.fitpaisa.app.core.ads.AdOutcome.WATCHED -> doSpin("ad")
+                                        com.fitpaisa.app.core.ads.AdOutcome.NOT_READY -> {
+                                            resultText = "Ad not available right now — try again in a bit."
+                                        }
+                                        com.fitpaisa.app.core.ads.AdOutcome.SKIPPED -> {
+                                            resultText = "You closed the ad early — watch it fully for an ad spin."
+                                        }
+                                    }
                                 }
                             }
                         }) {
