@@ -3,16 +3,21 @@ package com.fitpaisa.app.core.ads
 /**
  * Ad network configuration.
  *
- * Unity Ads test IDs are used for now — safe to build and test with.
- * Before release: create a project at dashboard.unity3d.com and
- * replace UNITY_GAME_ID and UNITY_REWARDED_AD_UNIT_ID with your real IDs.
- * (AdMob is kept as a fallback; its account is currently closed.)
+ * AdMob is now the primary network (real IDs from admob.google.com).
+ * Unity Ads stays as a fallback. Debug builds use Google's official
+ * AdMob test ad unit so testing never counts as a real-ad click.
  */
 object AdsConfig {
-    // Google's official test rewarded ad unit ID (AdMob fallback).
-    const val REWARDED_AD_UNIT_ID = "ca-app-pub-3940256099942544/5224354917"
+    // AdMob: real fitPaisa rewarded ad unit (release builds only).
+    const val ADMOB_REWARDED_AD_UNIT_ID = "ca-app-pub-7360446604215991/5669568491"
 
-    // Unity Ads test Game ID (Android). Replace with your real one.
+    // Google's official test rewarded ad unit (debug builds only).
+    const val ADMOB_TEST_REWARDED_AD_UNIT_ID = "ca-app-pub-3940256099942544/5224354917"
+
+    // Kept for reference; use ADMOB_REWARDED_AD_UNIT_ID for real ads.
+    const val REWARDED_AD_UNIT_ID = ADMOB_TEST_REWARDED_AD_UNIT_ID
+
+    // Unity Ads (fallback). Replace with your real one.
     const val UNITY_GAME_ID = "800396858"
     // Unity Ads test rewarded ad unit ID. Replace with your real one.
     const val UNITY_REWARDED_AD_UNIT_ID = "BP_Rewarded_Android"

@@ -14,16 +14,14 @@ import javax.inject.Singleton
 import kotlin.coroutines.resume
 
 /**
- * Manages Unity rewarded ads. The step→coin Convert flow requires watching
- * an ad: the app shows the ad first, and only calls the server to credit
- * coins after the user watches it to the end.
- *
- * Uses Unity's test Game ID. Replace with your real Game ID and Ad Unit ID
- * from dashboard.unity3d.com before release (see AdsConfig).
+ * Manages rewarded ads. AdMob is tried first; Unity is the fallback.
+ * The step→coin Convert flow shows an ad first, and only calls the
+ * server to credit coins after the user watches it to the end.
  */
 @Singleton
 class AdManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val admobManager: AdMobManager
 ) {
     private var isInitialized = false
     private var isLoading = false
@@ -55,6 +53,7 @@ class AdManager @Inject constructor(
 
     /** Preloads a rewarded ad so it's ready when the user taps Convert. */
     fun preload() {
+        admobManager.preload()
         if (!isInitialized || isLoaded || isLoading) return
         isLoading = true
         UnityAds.load(
@@ -80,14 +79,25 @@ class AdManager @Inject constructor(
     }
 
     /**
-     * Shows the rewarded ad.
+     * Shows the rewarded ad: AdMob first, Unity as fallback.
      *
      * The old Boolean result mixed up two very different failures: an ad
      * that was unavailable, and an ad the user closed early. Callers need
      * to tell them apart, because an unavailable ad should not block the
-     * core walk-to-earn loop while Unity is unreliable.
+     * core walk-to-earn loop while an ad network is unreliable.
      */
-    suspend fun showRewarded(activity: Activity): AdOutcome =
+    suspend fun showRewarded(activity: Activity): AdOutcome {
+        val admobOutcome = admobManager.showRewarded(activity)
+        if (admobOutcome == AdOutcome.WATCHED || admobOutcome == AdOutcome.SKIPPED) {
+            return admobOutcome
+        }
+        // AdMob had nothing ready: fall back to Unity.
+        lastError = admobManager.lastError
+        return showUnityRewarded(activity)
+    }
+
+    /** Unity fallback path (kept separate so AdMob stays first). */
+    private suspend fun showUnityRewarded(activity: Activity): AdOutcome =
         suspendCancellableCoroutine { cont ->
             if (!isLoaded) {
                 preload()
@@ -141,7 +151,7 @@ class AdManager @Inject constructor(
         }
 
     /** True if an ad is preloaded and ready to show. */
-    fun isReady(): Boolean = isLoaded
+    fun isReady(): Boolean = admobManager.isReady() || isLoaded
 }
 
 /** What happened when a rewarded ad was requested. */
