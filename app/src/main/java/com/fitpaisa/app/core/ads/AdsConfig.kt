@@ -17,8 +17,9 @@ object AdsConfig {
     // Kept for reference; use ADMOB_REWARDED_AD_UNIT_ID for real ads.
     const val REWARDED_AD_UNIT_ID = ADMOB_TEST_REWARDED_AD_UNIT_ID
 
-    // Unity Ads (fallback). Replace with your real one.
-    const val UNITY_GAME_ID = "800396858"
+    // Unity Ads (fallback). New Unity project created 2026-10-25
+    // (screenshot Game ID) — replaces the old 800396858 project.
+    const val UNITY_GAME_ID = "800410563"
     // Unity Ads test rewarded ad unit ID. Replace with your real one.
     const val UNITY_REWARDED_AD_UNIT_ID = "BP_Rewarded_Android"
     // Set to false before release.
