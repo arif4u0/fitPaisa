@@ -35,12 +35,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import coil.compose.AsyncImage
 import com.fitpaisa.app.core.rewards.Product
 import com.fitpaisa.app.core.rewards.RequestOutcome
 import com.fitpaisa.app.core.rewards.RewardsRepository
@@ -167,7 +169,7 @@ private fun ProductCard(product: Product, onTap: () -> Unit) {
         Column(modifier = Modifier.padding(16.dp)) {
             // Product image (if uploaded).
             if (!product.imageUrl.isNullOrBlank()) {
-                coil.compose.AsyncImage(
+                AsyncImage(
                     model = product.imageUrl,
                     contentDescription = product.name,
                     modifier = Modifier
