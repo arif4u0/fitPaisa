@@ -30,7 +30,7 @@ class AdManager @Inject constructor(
 ) {
     companion object {
         private const val TAG = "FitPaisaAds"
-        private const val MAX_AWAIT_TIME_MS = 3500L
+        private const val MAX_AWAIT_TIME_MS = 6000L
         private const val POLL_INTERVAL_MS = 250L
     }
 

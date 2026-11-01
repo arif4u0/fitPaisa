@@ -202,7 +202,7 @@ class HomeViewModel @Inject constructor(
                 com.fitpaisa.app.core.ads.AdOutcome.NOT_READY -> {
                     uiState = uiState.copy(
                         dailyAdBusy = false,
-                        dailyAdMessage = "Ad is warming up. Please try again in 5 seconds."
+                        dailyAdMessage = "Ad is buffering video. Please wait a few seconds and tap again!"
                     )
                 }
                 com.fitpaisa.app.core.ads.AdOutcome.WATCHED -> {
