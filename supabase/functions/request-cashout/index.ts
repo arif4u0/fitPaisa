@@ -6,9 +6,10 @@
  *
  * Auth: user JWT (Authorization: Bearer <access_token>).
  * Minimum 10,000 coins (= Rs 100). Coins are reserved immediately via the
- * atomic public.request_cashout() RPC. The founder reviews in the admin
- * screen: marks paid (after sending money) or rejected (coins refunded).
+ * atomic public.request_cashout() RPC which enforces pg_advisory_xact_lock
+ * against double-spend races and limits users to 1 concurrent pending cashout.
  */
+
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
@@ -28,6 +29,7 @@ async function getUserId(req: Request): Promise<{ userId: string | null; reason:
   if (!authHeader) return { userId: null, reason: "no_auth_header" };
   const jwt = authHeader.replace(/^Bearer\s+/i, "");
   if (!jwt) return { userId: null, reason: "empty_bearer_token" };
+
   const service = createClient(SUPABASE_URL, SERVICE_KEY, {
     auth: { persistSession: false },
   });
@@ -51,18 +53,32 @@ serve(async (req: Request) => {
   }
 
   const coins = Number(body["coins"] ?? 0);
-  const method = String(body["method"] ?? "");
+  const method = String(body["method"] ?? "").toLowerCase().trim();
   const accountTitle = String(body["account_title"] ?? "").trim();
-  const accountNumber = String(body["account_number"] ?? "").trim();
+  const rawAccountNumber = String(body["account_number"] ?? "").trim();
+  const accountNumber = rawAccountNumber.replace(/[\s\-]/g, "");
 
   if (!Number.isInteger(coins) || coins < MIN_COINS) {
     return json({ error: "below_minimum", min_coins: MIN_COINS }, 400);
   }
+
   if (!["easypaisa", "jazzcash", "bank"].includes(method)) {
     return json({ error: "bad_method" }, 400);
   }
+
   if (!accountTitle || !accountNumber) {
     return json({ error: "missing_account_details" }, 400);
+  }
+
+  // Validate mobile wallet numbers for Pakistani providers (03XXXXXXXXX or +923XXXXXXXXX)
+  if (method === "easypaisa" || method === "jazzcash") {
+    const isPkMobile = /^(03[0-9]{9}|\+923[0-9]{9}|923[0-9]{9})$/.test(accountNumber);
+    if (!isPkMobile) {
+      return json({
+        error: "invalid_phone_number",
+        message: "Please enter a valid 11-digit Pakistani mobile number (e.g. 03001234567)."
+      }, 400);
+    }
   }
 
   const db = createClient(SUPABASE_URL, SERVICE_KEY, {
@@ -81,8 +97,14 @@ serve(async (req: Request) => {
     const msg = error.message ?? "";
     if (msg.includes("below_minimum")) return json({ error: "below_minimum", min_coins: MIN_COINS }, 400);
     if (msg.includes("insufficient_coins")) return json({ error: "insufficient_coins" }, 400);
+    if (msg.includes("pending_cashout_exists")) {
+      return json({
+        error: "pending_cashout_exists",
+        message: "You already have a cashout request pending admin review. Please wait for it to be processed."
+      }, 400);
+    }
     if (msg.includes("bad_method")) return json({ error: "bad_method" }, 400);
-    return json({ error: "cashout_failed" }, 500);
+    return json({ error: "cashout_failed", details: msg }, 500);
   }
 
   return json({

@@ -13,17 +13,17 @@
  *   - The user's CURRENT level (from profiles) decides the daily_step_cap.
  *   - eligible = min(observed, level_cap); manual-entry data is excluded.
  *   - new_steps = max(0, eligible - already_credited)
- *   - coins = floor(new_steps / steps_per_coin), posted ONCE per
- *     (user, date, rule_version) via UNIQUE(source_type, source_id).
- *     Replays credit zero.
+ *   - coins = floor(new_steps / steps_per_coin), posted securely per delta batch:
+ *     source_id = `steps:${userId}:${localDate}:${alreadyCredited}_${alreadyCredited + newSteps}:v${ruleVersion}`
+ *     This allows users to convert steps multiple times a day without hitting duplicate key errors.
  *   - profiles.lifetime_steps += new_steps; level recomputed from thresholds.
  *   - Coins are posted 'held' and mature after reward_hold_days (7).
  */
+
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 function json(body: unknown, status = 200): Response {
@@ -44,8 +44,7 @@ async function getUserId(req: Request): Promise<{ userId: string | null; reason:
   if (!authHeader) return { userId: null, reason: "no_auth_header" };
   const jwt = authHeader.replace(/^Bearer\s+/i, "");
   if (!jwt) return { userId: null, reason: "empty_bearer_token" };
-  // Verify the JWT with the service-role client and the explicit token.
-  // (Does not depend on the anon key, which is auto-injected and never set manually.)
+
   const service = createClient(SUPABASE_URL, SERVICE_KEY, {
     auth: { persistSession: false },
   });
@@ -88,6 +87,16 @@ serve(async (req: Request) => {
     return json({ error: "invalid_payload" }, 400);
   }
 
+  // Date format & drift validation (YYYY-MM-DD, within +-28h of UTC now)
+  const parsedDate = new Date(localDate + "T00:00:00Z");
+  if (isNaN(parsedDate.getTime())) {
+    return json({ error: "invalid_date_format" }, 400);
+  }
+  const dateDriftHours = Math.abs(Date.now() - parsedDate.getTime()) / 3600_000;
+  if (dateDriftHours > 36) {
+    return json({ error: "date_drift_exceeded" }, 400);
+  }
+
   const db = serviceClient();
 
   // Idempotency: a retried sync with the same key is a no-op.
@@ -105,6 +114,7 @@ serve(async (req: Request) => {
     .eq("key", "rule_version")
     .single();
   const ruleVersion: number = (cfg?.value as number) ?? 1;
+
   const { data: rule, error: ruleErr } = await db
     .from("reward_rules")
     .select("*")
@@ -113,26 +123,27 @@ serve(async (req: Request) => {
   if (ruleErr || !rule) return json({ error: "no_active_rule" }, 500);
 
   // User's current level -> per-level daily step cap.
-  // If the profile row is missing (sign-in trigger did not run), create it
-  // so lifetime steps, levels and the leaderboard can track this user.
   let { data: profile } = await db
     .from("profiles")
-    .select("level, lifetime_steps")
+    .select("level, lifetime_steps, streak_days, last_streak_date")
     .eq("id", userId)
     .maybeSingle();
+
   if (!profile) {
     await db.from("profiles").upsert(
       { id: userId, level: 1, lifetime_steps: 0 },
       { onConflict: "id", ignoreDuplicates: true },
     );
-    profile = { level: 1, lifetime_steps: 0 };
+    profile = { level: 1, lifetime_steps: 0, streak_days: 0, last_streak_date: null };
   }
+
   const userLevel: number = (profile?.level as number) ?? 1;
   const { data: levelRow } = await db
     .from("levels")
     .select("daily_step_cap")
     .eq("level", userLevel)
     .maybeSingle();
+
   const dailyCap: number =
     (levelRow?.daily_step_cap as number) ?? (rule.daily_step_cap as number);
 
@@ -147,6 +158,7 @@ serve(async (req: Request) => {
     .eq("user_id", userId)
     .eq("local_date", localDate)
     .maybeSingle();
+
   const alreadyCredited: number = day?.credited_steps ?? 0;
   const newSteps = Math.max(0, eligibleTotal - alreadyCredited);
   const coins = Math.floor(newSteps / (rule.steps_per_coin as number));
@@ -161,6 +173,7 @@ serve(async (req: Request) => {
     source_summary: sourceSummary ?? {},
     app_version: appVersion ?? null,
   });
+
   if (evErr && (evErr as { code?: string }).code === "23505") {
     return json({ ok: true, deduped: true });
   }
@@ -179,12 +192,14 @@ serve(async (req: Request) => {
     { onConflict: "user_id,local_date" },
   );
 
-  // Post the held credit once. UNIQUE(source_type, source_id) makes replays
-  // (same day + rule version) credit zero instead of double-paying.
+  // Post the held credit per delta batch.
+  // Using sequential step ranges avoids the 23505 duplicate collision on multi-conversions per day!
   let ledgerId: string | null = null;
   if (coins > 0) {
     const holdDays = rule.reward_hold_days as number;
     const availableAt = new Date(Date.now() + holdDays * 86400_000).toISOString();
+    const sourceId = `steps:${userId}:${localDate}:${alreadyCredited}_${alreadyCredited + newSteps}:v${ruleVersion}`;
+
     const { data: entry, error: leErr } = await db
       .from("ledger_entries")
       .insert({
@@ -192,21 +207,22 @@ serve(async (req: Request) => {
         amount_coins: coins,
         state: "held",
         source_type: "steps",
-        source_id: `steps:${userId}:${localDate}:v${ruleVersion}`,
+        source_id: sourceId,
         rule_version: ruleVersion,
         available_at: availableAt,
         metadata: {
           observed_total: observedTotal,
           eligible_total: eligibleTotal,
           new_steps: newSteps,
+          already_credited: alreadyCredited,
           level: userLevel,
           daily_cap: dailyCap,
         },
       })
       .select("id")
       .maybeSingle();
+
     if (!leErr) ledgerId = entry?.id ?? null;
-    // 23505 here = this day/rule was already credited; treat as replay, no error.
   }
 
   // Advance lifetime steps and recompute level from thresholds.
@@ -220,6 +236,7 @@ serve(async (req: Request) => {
       .order("level", { ascending: false })
       .limit(1)
       .maybeSingle();
+
     const newLevel: number = (newLevelRow?.level as number) ?? userLevel;
     finalLevel = newLevel;
     await db
@@ -229,22 +246,22 @@ serve(async (req: Request) => {
   }
 
   // Daily streak: consecutive days with a conversion (coins > 0).
-  // Yesterday → increment; today already counted → keep; otherwise reset to 1.
-  // Milestone bonuses: 7 days = 25 coins, 14 = 50, 30 = 100 (available immediately).
   let streakDays: number = (profile?.streak_days as number) ?? 0;
   let streakBonus = 0;
   if (coins > 0) {
     const lastStreak: string | null = (profile?.last_streak_date as string) ?? null;
-    const today = localDate; // YYYY-MM-DD
+    const today = localDate;
     const yesterday = new Date(new Date(today + "T00:00:00Z").getTime() - 86400_000)
       .toISOString().slice(0, 10);
+
     if (lastStreak === today) {
-      // Already counted today — no change.
+      // Already counted today — keep
     } else if (lastStreak === yesterday) {
       streakDays += 1;
     } else {
       streakDays = 1;
     }
+
     const milestones: Record<number, number> = { 7: 25, 14: 50, 30: 100 };
     if (milestones[streakDays]) {
       streakBonus = milestones[streakDays];
@@ -259,14 +276,14 @@ serve(async (req: Request) => {
         metadata: { streak_days: streakDays },
       });
     }
+
     await db
       .from("profiles")
       .update({ streak_days: streakDays, last_streak_date: today })
       .eq("id", userId);
   }
 
-  // Daily challenge: if today's eligible steps hit the target and the bonus
-  // hasn't been claimed yet, award bonus coins (available immediately).
+  // Daily challenge: if today's eligible steps hit target and not yet claimed
   let challengeBonus = 0;
   let challengeTarget = 0;
   {
@@ -284,6 +301,7 @@ serve(async (req: Request) => {
         .eq("user_id", userId)
         .eq("local_date", localDate)
         .maybeSingle();
+
       if (!dayRow?.challenge_bonus_claimed) {
         challengeBonus = bonusCoins;
         await db.from("ledger_entries").insert({
@@ -296,6 +314,7 @@ serve(async (req: Request) => {
           available_at: new Date().toISOString(),
           metadata: { target_steps: challengeTarget, eligible_total: eligibleTotal },
         });
+
         await db
           .from("daily_steps")
           .update({ challenge_bonus_claimed: true })
@@ -305,7 +324,7 @@ serve(async (req: Request) => {
     }
   }
 
-  // Achievements: unlock milestone badges (idempotent via PK).
+  // Achievements
   {
     const toUnlock: string[] = [];
     if (eligibleTotal >= 10000) toUnlock.push("first_10k_day");
@@ -315,6 +334,7 @@ serve(async (req: Request) => {
     if (lifetime >= 1000000) toUnlock.push("lifetime_1m");
     if (streakDays >= 7) toUnlock.push("streak_7");
     if (streakDays >= 30) toUnlock.push("streak_30");
+
     for (const ach of toUnlock) {
       await db.from("user_achievements").upsert(
         { user_id: userId, achievement_id: ach },
