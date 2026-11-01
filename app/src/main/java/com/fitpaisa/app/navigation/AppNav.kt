@@ -1,8 +1,10 @@
 package com.fitpaisa.app.navigation
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.CardGiftcard
@@ -31,7 +33,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
@@ -45,7 +52,9 @@ import com.fitpaisa.app.feature.profile.ProfileScreen
 import com.fitpaisa.app.feature.signin.SignInScreen
 import com.fitpaisa.app.feature.wallet.WalletScreen
 import com.fitpaisa.app.feature.welcome.WelcomeScreen
+import com.fitpaisa.app.ui.theme.CardBorder
 import com.fitpaisa.app.ui.theme.Gold
+import com.fitpaisa.app.ui.theme.GoldLight
 import com.fitpaisa.app.ui.theme.MutedSage
 import com.fitpaisa.app.ui.theme.NavBarGreen
 import kotlinx.coroutines.launch
@@ -79,11 +88,10 @@ private val TABS = listOf(
 private val TAB_ROUTES = TABS.map { it.route }.toSet()
 
 /**
- * App navigation (v2). Cold-start routing:
+ * App navigation (v3). Cold-start routing:
  *  - welcome not accepted -> Welcome
  *  - no session          -> SignIn
- *  - session             -> Home (with bottom nav)
- * The bottom bar is visible on the four tab destinations only.
+ *  - session             -> Home (with sleek modern bottom nav)
  */
 @Composable
 fun AppNav(
@@ -169,7 +177,6 @@ fun AppNav(
                 ProfileScreen(
                     onSignedOut = {
                         navController.navigate(Routes.SIGNIN) {
-                            // Clear everything: Back from SignIn exits the app.
                             popUpTo(navController.graph.id) { inclusive = true }
                         }
                     },
@@ -184,7 +191,6 @@ fun AppNav(
 
 private fun NavController.navigateToTab(route: String) {
     navigate(route) {
-        // Tabs never stack on each other; back always exits from Home.
         popUpTo(Routes.HOME) { saveState = true }
         launchSingleTop = true
         restoreState = true
@@ -196,7 +202,15 @@ private fun BottomTabs(
     currentRoute: String?,
     onTabSelected: (String) -> Unit
 ) {
-    NavigationBar(containerColor = NavBarGreen) {
+    val navShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+
+    NavigationBar(
+        containerColor = NavBarGreen,
+        modifier = Modifier
+            .shadow(16.dp, navShape)
+            .clip(navShape)
+            .border(1.dp, CardBorder, navShape)
+    ) {
         TABS.forEach { tab ->
             val selected = currentRoute == tab.route
             NavigationBarItem(
@@ -208,13 +222,19 @@ private fun BottomTabs(
                         contentDescription = tab.label
                     )
                 },
-                label = { Text(tab.label) },
+                label = {
+                    Text(
+                        text = tab.label,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                        fontSize = 11.sp
+                    )
+                },
                 colors = NavigationBarItemDefaults.colors(
                     selectedIconColor = Gold,
-                    selectedTextColor = Gold,
+                    selectedTextColor = GoldLight,
                     unselectedIconColor = MutedSage,
                     unselectedTextColor = MutedSage,
-                    indicatorColor = Gold.copy(alpha = 0.15f)
+                    indicatorColor = Gold.copy(alpha = 0.18f)
                 )
             )
         }

@@ -6,9 +6,8 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 
 /**
- * fitPaisa theme (v2 redesign). The app is ALWAYS dark: deep forest green
- * background with gold accents, matching the brand logo. There is no light
- * scheme — the dark palette is the product identity.
+ * fitPaisa modern luxury theme (v3).
+ * Always dark, always high-contrast, premium midnight obsidian emerald & electric gold.
  */
 private val FitPaisaColors = darkColorScheme(
     primary = Gold,
@@ -17,14 +16,15 @@ private val FitPaisaColors = darkColorScheme(
     onPrimaryContainer = CreamWhite,
     secondary = GoldLight,
     onSecondary = OnGold,
-    tertiary = SuccessGreen,
+    tertiary = NeonEmerald,
+    onTertiary = OnGold,
     background = ForestGreen,
     onBackground = CreamWhite,
     surface = ForestGreenSurface,
     onSurface = CreamWhite,
     surfaceVariant = ForestGreenCard,
     onSurfaceVariant = MutedSage,
-    outline = Gold,
+    outline = CardBorder,
     outlineVariant = RingTrack,
     error = ErrorRed,
     onError = CreamWhite,

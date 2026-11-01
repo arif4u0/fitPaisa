@@ -5,6 +5,9 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,37 +18,44 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.outlined.Notifications
-import androidx.compose.foundation.layout.width
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -55,14 +65,22 @@ import com.fitpaisa.app.core.rewards.ConvertOutcome
 import com.fitpaisa.app.core.rewards.RewardsRepository
 import com.fitpaisa.app.core.sensor.StepSensorRepository
 import com.fitpaisa.app.core.ui.PilotData
+import com.fitpaisa.app.ui.theme.CardBorder
+import com.fitpaisa.app.ui.theme.CardBorderGlow
 import com.fitpaisa.app.ui.theme.CoinBalanceCard
 import com.fitpaisa.app.ui.theme.CoinLogo
 import com.fitpaisa.app.ui.theme.CreamWhite
 import com.fitpaisa.app.ui.theme.ForestGreenCard
+import com.fitpaisa.app.ui.theme.ForestGreenSurface
 import com.fitpaisa.app.ui.theme.Gold
+import com.fitpaisa.app.ui.theme.GoldDark
+import com.fitpaisa.app.ui.theme.GoldGlow
+import com.fitpaisa.app.ui.theme.GoldLight
 import com.fitpaisa.app.ui.theme.MutedSage
+import com.fitpaisa.app.ui.theme.NeonEmerald
 import com.fitpaisa.app.ui.theme.OnGold
 import com.fitpaisa.app.ui.theme.OutlineInfoCard
+import com.fitpaisa.app.ui.theme.RingTrack
 import com.fitpaisa.app.ui.theme.SuccessGreen
 import com.fitpaisa.app.ui.theme.formatNumber
 import com.fitpaisa.app.ui.theme.goldArcSegment
@@ -83,7 +101,6 @@ data class HomeUiState(
     val userName: String = "friend",
     val stepsToday: Int = 0,
     val stepsGoal: Int = PilotData.STEPS_GOAL,
-    /** Coin balance comes ONLY from the server ledger — never computed on the phone. */
     val coins: Int = 0,
     val maturingCoins: Int = 0,
     val balanceLoaded: Boolean = false,
@@ -94,13 +111,11 @@ data class HomeUiState(
     val hasPermission: Boolean = true,
     val isSensorAvailable: Boolean = true,
     val convertState: ConvertUiState = ConvertUiState.Idle,
-    /** Daily Ads: server-counted watches today, level limit, coins per ad. */
     val dailyAdsWatched: Int = 0,
     val dailyAdLimit: Int = 5,
     val dailyAdCoins: Int = 10,
     val dailyAdBusy: Boolean = false,
     val dailyAdMessage: String? = null,
-    /** Daily challenge: matches app_config daily_challenge_target/bonus (server awards it). */
     val challengeTarget: Int = 8000,
     val challengeBonus: Int = 50
 )
@@ -116,11 +131,11 @@ class HomeViewModel @Inject constructor(
 
     var uiState by mutableStateOf(HomeUiState())
         private set
+
     var updateInfo by mutableStateOf<com.fitpaisa.app.core.update.UpdateInfo?>(null)
         private set
 
     init {
-        // Preload the rewarded ad so it's ready when the user taps Convert.
         adManager.preload()
         viewModelScope.launch {
             val email = authRepository.currentUserEmail()
@@ -131,29 +146,24 @@ class HomeViewModel @Inject constructor(
                 ?: "friend"
             uiState = uiState.copy(userName = name)
         }
-
         viewModelScope.launch {
             stepSensorRepository.hasPermission.collectLatest { hasPerm ->
                 uiState = uiState.copy(hasPermission = hasPerm)
             }
         }
-
         viewModelScope.launch {
             stepSensorRepository.isSensorAvailable.collectLatest { available ->
                 uiState = uiState.copy(isSensorAvailable = available)
             }
         }
-
         viewModelScope.launch {
             stepSensorRepository.todaySteps.collectLatest { sensorSteps ->
                 uiState = uiState.copy(stepsToday = sensorSteps)
             }
         }
-
         refreshBalance()
     }
 
-    /** Pulls the real balance and server level from the server. */
     fun refreshBalance() {
         viewModelScope.launch {
             val b = rewardsRepository.getBalance()
@@ -171,12 +181,6 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Daily Ads tap: show a rewarded ad, and only if it was watched to
-     * the end, claim the coins from the server (which enforces the
-     * level's daily limit). No ad watched = no coins, unlike Convert's
-     * temporary unavailable-ad bypass.
-     */
     fun onWatchAdClicked(activity: android.app.Activity) {
         if (uiState.dailyAdBusy) return
         if (uiState.dailyAdsWatched >= uiState.dailyAdLimit) {
@@ -192,13 +196,13 @@ class HomeViewModel @Inject constructor(
                 com.fitpaisa.app.core.ads.AdOutcome.SKIPPED -> {
                     uiState = uiState.copy(
                         dailyAdBusy = false,
-                        dailyAdMessage = "You closed the ad early. Watch it fully to earn coins."
+                        dailyAdMessage = "You closed the ad early. Watch fully to claim FitCoins."
                     )
                 }
                 com.fitpaisa.app.core.ads.AdOutcome.NOT_READY -> {
                     uiState = uiState.copy(
                         dailyAdBusy = false,
-                        dailyAdMessage = "No ad available right now — try again in a bit."
+                        dailyAdMessage = "Ad is warming up. Please try again in 5 seconds."
                     )
                 }
                 com.fitpaisa.app.core.ads.AdOutcome.WATCHED -> {
@@ -206,8 +210,7 @@ class HomeViewModel @Inject constructor(
                         is RewardsRepository.AdRewardOutcome.Credited -> {
                             uiState = uiState.copy(
                                 dailyAdBusy = false,
-                                dailyAdMessage = "+${outcome.coins} FitCoins! " +
-                                    "(${outcome.watched}/${outcome.limit} ads today)",
+                                dailyAdMessage = "+${outcome.coins} FitCoins credited! (${outcome.watched}/${outcome.limit} today)",
                                 dailyAdsWatched = outcome.watched,
                                 dailyAdLimit = outcome.limit
                             )
@@ -237,45 +240,30 @@ class HomeViewModel @Inject constructor(
         uiState = uiState.copy(dailyAdMessage = null)
     }
 
-    /**
-     * Convert tap: sends today's steps to the server. The SERVER decides how
-     * many coins are credited (level cap, anti-replay) — the phone never does.
-     */
     fun onConvertClicked(activity: android.app.Activity) {
         if (uiState.convertState == ConvertUiState.Converting) return
         viewModelScope.launch {
             uiState = uiState.copy(convertState = ConvertUiState.Converting)
-            // Step 1: try the rewarded ad.
-            // Temporary Unity workaround: if no ad is available, do not
-            // block the core conversion. Only a started ad that the user
-            // closes early still blocks it.
             val adOutcome = adManager.showRewarded(activity)
             if (adOutcome == com.fitpaisa.app.core.ads.AdOutcome.SKIPPED) {
                 uiState = uiState.copy(
                     convertState = ConvertUiState.Done(
-                        "You closed the ad early. Watch it fully to convert."
+                        "Ad was closed early. Complete the video to convert steps."
                     )
                 )
                 return@launch
             }
-            // Step 2: ad watched — credit the coins on the server.
+
             val outcome = rewardsRepository.convertTodaySteps(uiState.stepsToday)
             val message = when (outcome) {
                 is ConvertOutcome.Converted -> {
-                    val base = "+${outcome.coins} FitCoins added! They mature in 7 days."
-                    val streak = if (outcome.streakDays > 1) {
-                        " 🔥 ${outcome.streakDays}-day streak!"
-                    } else ""
-                    val bonus = if (outcome.streakBonus > 0) {
-                        " +${outcome.streakBonus} streak bonus!"
-                    } else ""
-                    val challenge = if (outcome.challengeBonus > 0) {
-                        " 🎯 Challenge complete! +${outcome.challengeBonus} bonus coins!"
-                    } else ""
+                    val base = "🎉 +${outcome.coins} FitCoins earned! Maturing in 7 days."
+                    val streak = if (outcome.streakDays > 1) " 🔥 ${outcome.streakDays}-day streak!" else ""
+                    val bonus = if (outcome.streakBonus > 0) " +${outcome.streakBonus} bonus!" else ""
+                    val challenge = if (outcome.challengeBonus > 0) " 🎯 Challenge complete +${outcome.challengeBonus}!" else ""
                     base + streak + bonus + challenge
                 }
-                ConvertOutcome.NothingNew ->
-                    "Nothing new to convert yet — keep walking!"
+                ConvertOutcome.NothingNew -> "All current steps already converted. Keep walking!"
                 is ConvertOutcome.Failed -> outcome.message
             }
             uiState = uiState.copy(convertState = ConvertUiState.Done(message))
@@ -299,7 +287,6 @@ class HomeViewModel @Inject constructor(
         updateInfo = null
     }
 
-    // --- Lucky Spin ---
     var showSpinDialog by mutableStateOf(false)
         private set
     var freeSpinAvailable by mutableStateOf(true)
@@ -315,10 +302,8 @@ class HomeViewModel @Inject constructor(
         showSpinDialog = false
     }
 
-    /** Checks for a new version; call on every resume so the popup appears. */
     fun checkForUpdates() {
         viewModelScope.launch {
-            // Only check if we haven't already found an update.
             if (updateInfo == null) {
                 updateInfo = updateChecker.checkForUpdate()
             }
@@ -334,23 +319,17 @@ class HomeViewModel @Inject constructor(
 }
 
 /**
- * Home dashboard, matching the approved design: greeting, big gold steps
- * ring, gold coin-balance card, level + sync cards, permission request prompt.
+ * Modern High-Impact Home Dashboard.
  */
 @Composable
 fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
     val state = viewModel.uiState
-
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
-        if (isGranted) {
-            viewModel.onPermissionGranted()
-        }
+        if (isGranted) viewModel.onPermissionGranted()
     }
 
-    // The hardware counter keeps counting while the app is closed. Force a fresh
-    // reading every time the dashboard becomes visible so it never shows a stale count.
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -368,41 +347,64 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
-            .padding(top = 12.dp, bottom = 20.dp)
+            .padding(top = 16.dp, bottom = 28.dp)
     ) {
-        TopBar()
-        Spacer(Modifier.height(16.dp))
+        // Modern Header with Logo and Profile Pill
+        TopBar(
+            userName = state.userName,
+            levelName = state.levelName
+        )
 
-        Text(
-            text = "${dayGreeting()}, ${state.userName}",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = CreamWhite
-        )
-        Text(
-            text = "Let's earn while you walk",
-            style = MaterialTheme.typography.titleMedium,
-            color = Gold
-        )
         Spacer(Modifier.height(20.dp))
 
+        // Greeting Section
+        Column {
+            Text(
+                text = "${dayGreeting()}, ${state.userName}",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.ExtraBold,
+                color = CreamWhite
+            )
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Filled.Bolt,
+                    contentDescription = null,
+                    tint = NeonEmerald,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = "Turn daily movement into real cash rewards",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = GoldLight
+                )
+            }
+        }
+
+        Spacer(Modifier.height(22.dp))
+
+        // Activity Permission Prompt
         if (!state.hasPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             PermissionCard(onRequestPermission = {
                 permissionLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
             })
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(18.dp))
         }
 
+        // Modern Glowing Step Counter Ring
         StepsRing(
             steps = state.stepsToday,
             goal = state.stepsGoal,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(240.dp)
-                .align(Alignment.CenterHorizontally)
+                .padding(vertical = 8.dp)
         )
-        Spacer(Modifier.height(12.dp))
 
+        Spacer(Modifier.height(16.dp))
+
+        // High-Conversion Action Button
         val context = androidx.compose.ui.platform.LocalContext.current
         ConvertSection(
             steps = state.stepsToday,
@@ -414,38 +416,63 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
             },
             onDismiss = viewModel::dismissConvertMessage
         )
-        Spacer(Modifier.height(20.dp))
 
+        Spacer(Modifier.height(22.dp))
+
+        // Luxury Coin Balance Card
         CoinBalanceCard(
             coins = state.coins,
             modifier = Modifier.fillMaxWidth()
         )
-        if (state.maturingCoins > 0) {
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = "+${formatNumber(state.maturingCoins)} coins maturing (available in 7 days)",
-                style = MaterialTheme.typography.bodySmall,
-                color = MutedSage
-            )
-        }
-        Spacer(Modifier.height(16.dp))
 
+        if (state.maturingCoins > 0) {
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(ForestGreenCard.copy(alpha = 0.6f))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = null,
+                    tint = NeonEmerald,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "+${formatNumber(state.maturingCoins)} coins maturing (available in 7 days)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MutedSage,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+
+        Spacer(Modifier.height(20.dp))
+
+        // Daily Challenge Card
         ChallengeCard(
             stepsToday = state.stepsToday,
             target = state.challengeTarget,
             bonus = state.challengeBonus,
             modifier = Modifier.fillMaxWidth()
         )
-        Spacer(Modifier.height(12.dp))
 
-        // Lucky Spin entry card.
-        SpinEntryCard(
-            onClick = { viewModel.openSpin() },
-            modifier = Modifier.fillMaxWidth()
-        )
         Spacer(Modifier.height(16.dp))
 
-        // Daily Ads: watch rewarded ads up to the level's daily limit.
+        // Lucky Spin Card
+        SpinEntryCard(
+            onClick = { viewModel.openSpin() },
+            freeAvailable = viewModel.freeSpinAvailable,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        // Rewarded Daily Ads Card
         DailyAdsCard(
             watched = state.dailyAdsWatched,
             limit = state.dailyAdLimit,
@@ -460,35 +487,32 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
             onDismissMessage = viewModel::dismissDailyAdMessage,
             modifier = Modifier.fillMaxWidth()
         )
-        Spacer(Modifier.height(16.dp))
 
-        // Spin dialog.
-        if (viewModel.showSpinDialog) {
-            val ctx = context
-            SpinWheelDialog(
-                rewardsRepository = viewModel.rewardsRepository,
-                adManager = viewModel.adManager,
-                activity = ctx as? android.app.Activity,
-                freeSpinAvailable = viewModel.freeSpinAvailable,
-                onFreeSpinUsed = { viewModel.freeSpinAvailable = false },
-                onDismiss = viewModel::dismissSpin,
-                onPrizeWon = { viewModel.refreshBalance() }
-            )
-        }
+        Spacer(Modifier.height(18.dp))
 
+        // Quick Stats Row
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             OutlineInfoCard(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Filled.EmojiEvents,
-                        contentDescription = null,
-                        tint = Gold,
-                        modifier = Modifier.size(32.dp)
-                    )
-                    Column(modifier = Modifier.padding(start = 8.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(Gold.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.EmojiEvents,
+                            contentDescription = null,
+                            tint = Gold,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column {
                         Text(
                             text = "Level ${state.level}",
                             style = MaterialTheme.typography.titleMedium,
@@ -497,31 +521,41 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
                         )
                         Text(
                             text = state.levelName,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Gold
+                            style = MaterialTheme.typography.bodySmall,
+                            color = GoldLight
                         )
                     }
                 }
             }
+
             OutlineInfoCard(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Filled.CheckCircle,
-                        contentDescription = null,
-                        tint = SuccessGreen,
-                        modifier = Modifier.size(32.dp)
-                    )
-                    Column(modifier = Modifier.padding(start = 8.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(NeonEmerald.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Sensors,
+                            contentDescription = null,
+                            tint = NeonEmerald,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column {
                         Text(
-                            text = "Sync status",
+                            text = "Sensor",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = CreamWhite
                         )
                         Text(
-                            text = if (state.isSensorAvailable) "Live Tracking" else "No Hardware Sensor",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Gold
+                            text = if (state.isSensorAvailable) "Active Sync" else "Unavailable",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (state.isSensorAvailable) NeonEmerald else MutedSage
                         )
                     }
                 }
@@ -529,13 +563,27 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
         }
     }
 
-    // In-app update prompt (for sideloaded APKs — Play Store handles its own updates).
+    // Lucky Spin Dialog
+    if (viewModel.showSpinDialog) {
+        val ctx = androidx.compose.ui.platform.LocalContext.current
+        SpinWheelDialog(
+            rewardsRepository = viewModel.rewardsRepository,
+            adManager = viewModel.adManager,
+            activity = ctx as? android.app.Activity,
+            freeSpinAvailable = viewModel.freeSpinAvailable,
+            onFreeSpinUsed = { viewModel.freeSpinAvailable = false },
+            onDismiss = viewModel::dismissSpin,
+            onPrizeWon = { viewModel.refreshBalance() }
+        )
+    }
+
+    // App Update Dialog
     viewModel.updateInfo?.let { update ->
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { if (!update.forceUpdate) viewModel.dismissUpdate() },
             title = {
                 Text(
-                    "New version available",
+                    "Update Available",
                     color = CreamWhite,
                     fontWeight = FontWeight.Bold
                 )
@@ -543,7 +591,7 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "fitPaisa ${update.latestVersion} is ready.",
+                        "fitPaisa ${update.latestVersion} is ready with faster sync and new rewards.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = CreamWhite
                     )
@@ -564,7 +612,7 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
                         contentColor = OnGold
                     )
                 ) {
-                    Text("Download update", fontWeight = FontWeight.Bold)
+                    Text("Update Now", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -582,53 +630,155 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
 }
 
 @Composable
-private fun PermissionCard(onRequestPermission: () -> Unit) {
-    Card(
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = ForestGreenCard),
-        modifier = Modifier.fillMaxWidth()
+private fun TopBar(userName: String, levelName: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
     ) {
+        CoinLogo(size = 40.dp)
+        Spacer(Modifier.width(10.dp))
+        Column {
+            Text(
+                text = "fitPaisa",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.ExtraBold,
+                color = CreamWhite,
+                letterSpacing = (-0.5).sp
+            )
+            Text(
+                text = "Earn Real Cash By Walking",
+                style = MaterialTheme.typography.labelSmall,
+                color = GoldLight,
+                fontWeight = FontWeight.Medium
+            )
+        }
+        Spacer(Modifier.weight(1f))
+
+        // Level pill
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(ForestGreenCard)
+                .border(1.dp, CardBorderGlow, RoundedCornerShape(50))
+                .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.AutoMirrored.Filled.DirectionsWalk,
+                imageVector = Icons.Filled.LocalFireDepartment,
                 contentDescription = null,
                 tint = Gold,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(16.dp)
             )
-            Column(
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = levelName,
+                color = CreamWhite,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+/**
+ * Modern Circular Step Meter with progress, km & calorie estimations.
+ */
+@Composable
+private fun StepsRing(steps: Int, goal: Int, modifier: Modifier = Modifier) {
+    val progress = (steps.toFloat() / goal.coerceAtLeast(1)).coerceIn(0f, 1f)
+    val distanceKm = String.format(java.util.Locale.US, "%.1f", steps * 0.00075f)
+    val calories = (steps * 0.04f).toInt()
+    val percentage = (progress * 100).toInt()
+
+    Box(
+        modifier = modifier.height(260.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.size(240.dp)) {
+            goldArcSegment(
+                sweepDegrees = 360f * progress,
+                strokeWidthPx = 22.dp.toPx(),
+                trackColor = RingTrack,
+                progressColor = Gold
+            )
+        }
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            // Icon + Percentage Pill
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 12.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(Gold.copy(alpha = 0.12f))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
             ) {
-                Text(
-                    text = "Activity Tracking Off",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = CreamWhite
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.DirectionsWalk,
+                    contentDescription = null,
+                    tint = NeonEmerald,
+                    modifier = Modifier.size(14.dp)
                 )
+                Spacer(Modifier.width(4.dp))
                 Text(
-                    text = "Grant fitness permission so fitPaisa can auto-count your physical steps.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MutedSage
+                    text = "$percentage% of Goal",
+                    color = NeonEmerald,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
                 )
             }
-            Button(
-                onClick = onRequestPermission,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Gold,
-                    contentColor = OnGold
-                ),
-                shape = RoundedCornerShape(12.dp)
+
+            Spacer(Modifier.height(8.dp))
+
+            // Large Step Number
+            Text(
+                text = formatNumber(steps),
+                style = MaterialTheme.typography.displayMedium,
+                fontWeight = FontWeight.ExtraBold,
+                color = CreamWhite,
+                letterSpacing = (-1).sp
+            )
+
+            Text(
+                text = "Target: ${formatNumber(goal)} steps",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MutedSage
+            )
+
+            Spacer(Modifier.height(10.dp))
+
+            // Sub-metrics (km & calories)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = "Allow", fontWeight = FontWeight.Bold)
+                Text(
+                    text = "≈ $distanceKm km",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = GoldLight
+                )
+                Text(
+                    text = "•",
+                    color = MutedSage
+                )
+                Text(
+                    text = "≈ $calories kcal",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = GoldLight
+                )
             }
         }
     }
 }
 
+/**
+ * Modern Convert Button with glowing gradient, clear coin preview, and feedback.
+ */
 @Composable
 private fun ConvertSection(
     steps: Int,
@@ -637,117 +787,353 @@ private fun ConvertSection(
     onConvert: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    // Estimate only — the server decides the real credit (level cap, replays).
     val cap = EconomyConfig.levelInfo(level).dailyStepCap
-    val estimate = EconomyConfig.stepsToCoins(steps.coerceAtMost(cap))
+    val eligibleSteps = steps.coerceAtMost(cap)
+    val estimatedCoins = EconomyConfig.stepsToCoins(eligibleSteps)
     val canConvert = steps >= EconomyConfig.STEPS_PER_COIN &&
         convertState != ConvertUiState.Converting
 
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Button(
-            onClick = onConvert,
-            enabled = canConvert,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Gold,
-                contentColor = OnGold,
-                disabledContainerColor = Gold.copy(alpha = 0.25f),
-                disabledContentColor = CreamWhite.copy(alpha = 0.5f)
-            ),
-            shape = RoundedCornerShape(16.dp),
+    val buttonGradient = if (canConvert) {
+        Brush.horizontalGradient(listOf(GoldLight, Gold, GoldDark))
+    } else {
+        Brush.horizontalGradient(listOf(Gold.copy(alpha = 0.25f), Gold.copy(alpha = 0.20f)))
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
+                .height(60.dp)
+                .shadow(
+                    elevation = if (canConvert) 10.dp else 0.dp,
+                    shape = RoundedCornerShape(20.dp),
+                    spotColor = GoldGlow
+                )
+                .clip(RoundedCornerShape(20.dp))
+                .background(buttonGradient)
+                .clickable(enabled = canConvert, onClick = onConvert),
+            contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = if (convertState == ConvertUiState.Converting) {
-                    "Converting…"
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                if (convertState == ConvertUiState.Converting) {
+                    CircularProgressIndicator(
+                        color = OnGold,
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.5.dp
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = "Converting Steps…",
+                        color = OnGold,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
                 } else {
-                    "Watch ad → Convert ${formatNumber(steps)} steps"
-                },
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
+                    Icon(
+                        imageVector = Icons.Filled.PlayCircle,
+                        contentDescription = null,
+                        tint = if (canConvert) OnGold else CreamWhite.copy(alpha = 0.5f),
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = if (canConvert) {
+                            "Watch Ad & Convert (${formatNumber(steps)} Steps → $estimatedCoins Coins)"
+                        } else {
+                            "Walk at least 1,000 steps to convert"
+                        },
+                        color = if (canConvert) OnGold else CreamWhite.copy(alpha = 0.5f),
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 15.sp
+                    )
+                }
+            }
         }
+
+        Spacer(Modifier.height(8.dp))
+
         if (convertState is ConvertUiState.Done) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = convertState.message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = Gold
-            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(ForestGreenCard)
+                    .border(1.dp, CardBorderGlow, RoundedCornerShape(14.dp))
+                    .padding(12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = convertState.message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = GoldLight
+                )
+            }
             LaunchedEffect(convertState) {
-                kotlinx.coroutines.delay(4000)
+                kotlinx.coroutines.delay(4500)
                 onDismiss()
             }
         } else {
-            Spacer(Modifier.height(6.dp))
             Text(
-                text = "Coins are credited by our server and mature in 7 days.",
+                text = "⚡ Coins are posted to your ledger & mature in 7 days to ensure anti-cheat fairness.",
                 style = MaterialTheme.typography.bodySmall,
+                color = MutedSage,
+                fontSize = 11.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun PermissionCard(onRequestPermission: () -> Unit) {
+    Card(
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = ForestGreenCard),
+        border = androidx.compose.foundation.BorderStroke(1.dp, CardBorderGlow),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(46.dp)
+                    .clip(CircleShape)
+                    .background(Gold.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.DirectionsWalk,
+                    contentDescription = null,
+                    tint = Gold,
+                    modifier = Modifier.size(26.dp)
+                )
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Motion Sensor Required",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = CreamWhite
+                )
+                Text(
+                    text = "Enable physical step counting to earn FitCoins in the background.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MutedSage
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Button(
+                onClick = onRequestPermission,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Gold,
+                    contentColor = OnGold
+                ),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Text("Enable", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+/**
+ * Modern Daily Challenge Card with progress bar.
+ */
+@Composable
+private fun ChallengeCard(
+    stepsToday: Int,
+    target: Int,
+    bonus: Int,
+    modifier: Modifier = Modifier
+) {
+    val progress = (stepsToday.toFloat() / target.toFloat()).coerceIn(0f, 1f)
+    val completed = stepsToday >= target
+
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = ForestGreenCard),
+        border = androidx.compose.foundation.BorderStroke(1.dp, CardBorder)
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Gold.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.EmojiEvents,
+                            contentDescription = null,
+                            tint = Gold,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = "Daily Challenge",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = CreamWhite
+                    )
+                }
+
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(if (completed) NeonEmerald.copy(alpha = 0.2f) else Gold.copy(alpha = 0.15f))
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (completed) "Done! 🎉" else "+$bonus Coins",
+                        color = if (completed) NeonEmerald else GoldLight,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            Text(
+                text = if (completed)
+                    "Challenge achieved! Bonus credited to your account."
+                else
+                    "Reach ${formatNumber(target)} steps today to unlock $bonus instant bonus coins.",
+                style = MaterialTheme.typography.bodyMedium,
                 color = MutedSage
             )
+
+            Spacer(Modifier.height(14.dp))
+
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(4.dp)),
+                color = if (completed) NeonEmerald else Gold,
+                trackColor = RingTrack
+            )
+
+            Spacer(Modifier.height(6.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "${formatNumber(stepsToday)} steps walked",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MutedSage
+                )
+                Text(
+                    text = "Goal: ${formatNumber(target)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = GoldLight,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
     }
 }
 
+/**
+ * Modern Lucky Spin Entry Card.
+ */
 @Composable
-private fun TopBar() {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+private fun SpinEntryCard(
+    onClick: () -> Unit,
+    freeAvailable: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = ForestGreenCard),
+        border = androidx.compose.foundation.BorderStroke(1.dp, CardBorderGlow),
+        onClick = onClick
     ) {
-        CoinLogo(size = 40.dp)
-        Text(
-            text = "fitPaisa",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            color = CreamWhite,
-            modifier = Modifier.padding(start = 10.dp)
-        )
-        Spacer(Modifier.weight(1f))
-        Icon(
-            imageVector = Icons.Outlined.Notifications,
-            contentDescription = null,
-            tint = Gold,
-            modifier = Modifier.size(28.dp)
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .background(Gold.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = "🎡", fontSize = 24.sp)
+                }
+                Spacer(Modifier.width(14.dp))
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "Lucky Spin Wheel",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = CreamWhite
+                        )
+                        if (freeAvailable) {
+                            Spacer(Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(NeonEmerald)
+                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "FREE",
+                                    color = OnGold,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        text = "Spin and win up to 100 FitCoins instantly",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MutedSage
+                    )
+                }
+            }
+
+            Icon(
+                imageVector = Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = Gold
+            )
+        }
     }
 }
 
-@Composable
-private fun StepsRing(steps: Int, goal: Int, modifier: Modifier = Modifier) {
-    val progress = (steps.toFloat() / goal.coerceAtLeast(1)).coerceIn(0f, 1f)
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        Canvas(modifier = Modifier.size(220.dp)) {
-            goldArcSegment(
-                sweepDegrees = 360f * progress,
-                strokeWidthPx = 26.dp.toPx()
-            )
-        }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = formatNumber(steps),
-                style = MaterialTheme.typography.displayLarge,
-                fontWeight = FontWeight.Bold,
-                color = CreamWhite
-            )
-            Text(
-                text = "of ${formatNumber(goal)} steps",
-                style = MaterialTheme.typography.titleMedium,
-                color = Gold
-            )
-        }
-    }
-}
-
-private fun dayGreeting(): String = when (LocalTime.now().hour) {
-    in 5..11 -> "Good morning"
-    in 12..16 -> "Good afternoon"
-    in 17..21 -> "Good evening"
-    else -> "Good night"
-}
-
-/** Daily Ads card: watch rewarded ads up to the level's daily limit. */
+/**
+ * Modern Daily Rewarded Ads Card.
+ */
 @Composable
 private fun DailyAdsCard(
     watched: Int,
@@ -761,82 +1147,114 @@ private fun DailyAdsCard(
     modifier: Modifier = Modifier
 ) {
     val remaining = (limit - watched).coerceAtLeast(0)
+
     Card(
         modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = ForestGreenCard)
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = ForestGreenCard),
+        border = androidx.compose.foundation.BorderStroke(1.dp, CardBorder)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(18.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = "📺", fontSize = 28.sp)
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(Gold.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(text = "📺", fontSize = 22.sp)
+                    }
                     Spacer(Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = "Daily Ads",
+                            text = "Daily Rewarded Ads",
                             style = MaterialTheme.typography.titleMedium,
-                            color = Color.White
+                            fontWeight = FontWeight.Bold,
+                            color = CreamWhite
                         )
                         Text(
-                            text = "$levelName · +$coinsPerAd coins per ad",
-                            style = MaterialTheme.typography.bodyMedium,
+                            text = "$levelName Tier · +$coinsPerAd FitCoins each",
+                            style = MaterialTheme.typography.bodySmall,
                             color = MutedSage
                         )
                     }
                 }
-                Text(
-                    text = "$watched/$limit",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Gold
-                )
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(Gold.copy(alpha = 0.15f))
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = "$watched / $limit Watched",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = GoldLight
+                    )
+                }
             }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = if (remaining > 0) {
-                    "$remaining ad${if (remaining == 1) "" else "s"} left today"
-                } else {
-                    "All ads watched today — come back tomorrow!"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MutedSage
-            )
-            Spacer(Modifier.height(12.dp))
+
+            Spacer(Modifier.height(14.dp))
+
             Button(
                 onClick = onWatch,
                 enabled = remaining > 0 && !busy,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Gold,
                     contentColor = OnGold,
-                    disabledContainerColor = Gold.copy(alpha = 0.25f),
-                    disabledContentColor = CreamWhite.copy(alpha = 0.5f)
+                    disabledContainerColor = ForestGreenSurface,
+                    disabledContentColor = MutedSage
                 ),
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp)
             ) {
-                Text(
-                    text = if (busy) {
-                        "Loading ad…"
-                    } else if (remaining > 0) {
-                        "Watch Ad (+$coinsPerAd coins)"
-                    } else {
-                        "All ads watched today 🎉"
-                    },
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
+                if (busy) {
+                    CircularProgressIndicator(
+                        color = OnGold,
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Loading Unity Ad…", fontWeight = FontWeight.Bold)
+                } else if (remaining > 0) {
+                    Icon(
+                        imageVector = Icons.Filled.PlayCircle,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("Watch Video (+ $coinsPerAd Coins)", fontWeight = FontWeight.Bold)
+                } else {
+                    Text("All Daily Ads Completed 🎉", fontWeight = FontWeight.SemiBold)
+                }
             }
+
             if (message != null) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = message,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Gold
-                )
+                Spacer(Modifier.height(10.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(ForestGreenSurface)
+                        .padding(10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = GoldLight,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
                 LaunchedEffect(message) {
                     kotlinx.coroutines.delay(4000)
                     onDismissMessage()
@@ -846,113 +1264,9 @@ private fun DailyAdsCard(
     }
 }
 
-/** Entry card that opens the Lucky Spin dialog. */
-@Composable
-private fun SpinEntryCard(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = ForestGreenCard),
-        onClick = onClick
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = "🍀", fontSize = 28.sp)
-                Spacer(Modifier.width(12.dp))
-                Column {
-                    Text(
-                        text = "Lucky Spin",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White
-                    )
-                    Text(
-                        text = "Win up to 100 coins!",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MutedSage
-                    )
-                }
-            }
-            Icon(
-                imageVector = Icons.Filled.ChevronRight,
-                contentDescription = null,
-                tint = Gold
-            )
-        }
-    }
-}
-
-/** Today's Challenge card: walk the target steps to earn bonus coins. */
-@Composable
-private fun ChallengeCard(
-    stepsToday: Int,
-    target: Int,
-    bonus: Int,
-    modifier: Modifier = Modifier
-) {
-    val progress = (stepsToday.toFloat() / target.toFloat()).coerceIn(0f, 1f)
-    val completed = stepsToday >= target
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = ForestGreenCard)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Filled.EmojiEvents,
-                        contentDescription = null,
-                        tint = Gold
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "Today's Challenge",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White
-                    )
-                }
-                Text(
-                    text = if (completed) "Done! 🎉" else "+$bonus coins",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Gold
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = if (completed)
-                    "Challenge complete — bonus on its way!"
-                else
-                    "Walk ${formatNumber(target)} steps today to earn $bonus bonus coins.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MutedSage
-            )
-            Spacer(Modifier.height(12.dp))
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp)),
-                color = Gold,
-                trackColor = Color.White.copy(alpha = 0.15f)
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = "${formatNumber(stepsToday)} / ${formatNumber(target)} steps",
-                style = MaterialTheme.typography.bodySmall,
-                color = MutedSage
-            )
-        }
-    }
+private fun dayGreeting(): String = when (LocalTime.now().hour) {
+    in 5..11 -> "Good morning"
+    in 12..16 -> "Good afternoon"
+    in 17..21 -> "Good evening"
+    else -> "Good night"
 }
