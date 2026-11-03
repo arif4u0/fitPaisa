@@ -51,27 +51,27 @@ export const LuckyWheelModal: React.FC<LuckyWheelModalProps> = ({ onClose }) => 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-      <div className="relative w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl flex flex-col items-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-sm">
+      <div className="relative w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl flex flex-col items-center max-h-[92vh] overflow-y-auto">
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 p-1.5 rounded-full text-slate-400 hover:text-white bg-slate-800/80 cursor-pointer"
+          className="absolute top-3.5 right-3.5 p-1.5 rounded-full text-slate-400 hover:text-white bg-slate-800/80 cursor-pointer"
         >
           <X className="w-4 h-4" />
         </button>
 
-        <div className="text-center mb-4">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-semibold mb-2">
+        <div className="text-center mb-2 sm:mb-4">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-semibold mb-1.5">
             <Sparkles className="w-3.5 h-3.5" />
             <span>Lucky Spin Wheel</span>
           </div>
-          <h3 className="text-lg font-extrabold text-white">Daily Lucky Draw</h3>
-          <p className="text-xs text-slate-400 mt-1">Spin to win instant FitCoins straight to your wallet!</p>
+          <h3 className="text-base sm:text-lg font-extrabold text-white">Daily Lucky Draw</h3>
+          <p className="text-xs text-slate-400 mt-0.5">Spin to win instant FitCoins straight to your wallet!</p>
         </div>
 
         {/* Wheel Canvas / SVG */}
-        <div className="relative w-64 h-64 my-4 flex items-center justify-center">
+        <div className="relative w-52 h-52 sm:w-60 sm:h-60 my-3 sm:my-4 flex items-center justify-center shrink-0">
           {/* Wheel Pointer Pin */}
           <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-2 z-20 w-0 h-0 border-x-8 border-x-transparent border-t-[18px] border-t-amber-400 filter drop-shadow"></div>
 

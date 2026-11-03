@@ -38,37 +38,37 @@ export const HomeTab: React.FC = () => {
   const progressPercent = Math.min(100, (user.todaySteps / user.dailyStepCap) * 100);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Top User Greeting & Streak Bar */}
-      <div className="flex items-center justify-between p-4 bg-slate-900/80 border border-slate-800 rounded-3xl">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-slate-950 font-black text-xl shadow-lg shadow-emerald-500/20">
+      <div className="flex items-center justify-between p-3.5 sm:p-4 bg-slate-900/80 border border-slate-800 rounded-2xl sm:rounded-3xl gap-3">
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-slate-950 font-black text-lg sm:text-xl shadow-lg shadow-emerald-500/20 shrink-0">
             {user.name[0]}
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-base font-extrabold text-white">Hello, {user.name}!</h2>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+              <h2 className="text-sm sm:text-base font-extrabold text-white truncate">Hello, {user.name}!</h2>
+              <span className="text-[10px] sm:text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold whitespace-nowrap">
                 Level {user.level} {user.levelName}
               </span>
             </div>
-            <p className="text-xs text-slate-400">Walk today, earn tomorrow • 100 steps = 1 coin</p>
+            <p className="text-[11px] sm:text-xs text-slate-400 truncate">100 steps = 1 coin • Real cashouts</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
+        <div className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl sm:rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 shrink-0">
           <Flame className="w-4 h-4 fill-amber-400 text-amber-400 animate-pulse" />
           <div className="text-right">
-            <span className="text-xs font-bold font-mono">{user.streakDays}-Day</span>
-            <span className="text-[10px] text-amber-300/80 block">Streak</span>
+            <span className="text-xs font-bold font-mono">{user.streakDays}d</span>
+            <span className="text-[9px] text-amber-300/80 block uppercase tracking-tight">Streak</span>
           </div>
         </div>
       </div>
 
       {/* Main Step Counter Display */}
-      <div className="relative overflow-hidden p-6 sm:p-8 bg-gradient-to-b from-slate-900 to-slate-950 border border-slate-800 rounded-3xl shadow-xl flex flex-col items-center text-center">
+      <div className="relative overflow-hidden p-4 sm:p-8 bg-gradient-to-b from-slate-900 to-slate-950 border border-slate-800 rounded-2xl sm:rounded-3xl shadow-xl flex flex-col items-center text-center">
         {/* Step Circular Visualizer */}
-        <div className="relative w-56 h-56 flex items-center justify-center my-2">
+        <div className="relative w-48 h-48 sm:w-56 sm:h-56 flex items-center justify-center my-1 sm:my-2">
           <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
             {/* Background Ring */}
             <circle
@@ -101,38 +101,40 @@ export const HomeTab: React.FC = () => {
           </svg>
 
           {/* Central Stats */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <Footprints className="w-6 h-6 text-emerald-400 mb-1" />
-            <span className="text-4xl sm:text-5xl font-black text-white tracking-tight tabular-nums">
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <Footprints className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-400 mb-0.5 sm:mb-1" />
+            <span className="text-3xl sm:text-5xl font-black text-white tracking-tight tabular-nums">
               {user.todaySteps.toLocaleString()}
             </span>
-            <span className="text-xs text-slate-400 mt-0.5">
-              of {user.dailyStepCap.toLocaleString()} daily cap
+            <span className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
+              of {user.dailyStepCap.toLocaleString()} cap
             </span>
-            <div className="mt-1 text-[11px] font-semibold text-emerald-400">
+            <div className="mt-0.5 sm:mt-1 text-[10px] sm:text-[11px] font-bold text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/10">
               {progressPercent.toFixed(0)}% Completed
             </div>
           </div>
         </div>
 
         {/* Pedometer Simulator Controls */}
-        <div className="flex flex-wrap items-center justify-center gap-2 mt-4 pt-4 border-t border-slate-800/80 w-full">
-          <span className="text-[11px] text-slate-500 font-medium mr-1">Simulate Pedometer:</span>
+        <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-slate-800/80 w-full">
+          <span className="text-[10px] sm:text-[11px] text-slate-500 font-medium w-full sm:w-auto text-center sm:text-left mb-1 sm:mb-0">
+            Simulate Walking:
+          </span>
           <button
             onClick={() => addSteps(100)}
-            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-lg transition-all cursor-pointer font-medium"
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs rounded-xl transition-all cursor-pointer font-medium touch-manipulation"
           >
             +100 Steps
           </button>
           <button
             onClick={() => addSteps(1000)}
-            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-lg transition-all cursor-pointer font-medium"
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs rounded-xl transition-all cursor-pointer font-medium touch-manipulation"
           >
             +1,000 Steps
           </button>
           <button
             onClick={() => setAutoWalkActive(!autoWalkActive)}
-            className={`px-3 py-1 text-xs rounded-lg transition-all font-semibold flex items-center gap-1.5 cursor-pointer ${
+            className={`px-3 py-1.5 text-xs rounded-xl transition-all font-semibold flex items-center gap-1.5 cursor-pointer touch-manipulation active:scale-95 ${
               autoWalkActive
                 ? 'bg-red-500/20 text-red-300 border border-red-500/30'
                 : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
@@ -140,25 +142,25 @@ export const HomeTab: React.FC = () => {
           >
             {autoWalkActive ? (
               <>
-                <Square className="w-3 h-3 fill-current" /> Stop Auto-Walk
+                <Square className="w-3 h-3 fill-current" /> Stop Walk
               </>
             ) : (
               <>
-                <Play className="w-3 h-3 fill-current" /> Auto-Walk (120/min)
+                <Play className="w-3 h-3 fill-current" /> Auto-Walk
               </>
             )}
           </button>
         </div>
 
         {/* Convert CTA Card */}
-        <div className="w-full mt-6 p-4 rounded-2xl bg-slate-950 border border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="text-center sm:text-left">
+        <div className="w-full mt-4 sm:mt-6 p-3.5 sm:p-4 rounded-2xl bg-slate-950 border border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4">
+          <div className="text-center sm:text-left w-full sm:w-auto">
             <div className="flex items-center justify-center sm:justify-start gap-1.5 text-xs text-slate-400">
-              <Zap className="w-3.5 h-3.5 text-amber-400" />
-              <span>Unconverted Steps:</span>
+              <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span>Unconverted:</span>
               <strong className="text-white font-mono">{uncreditedSteps.toLocaleString()} steps</strong>
             </div>
-            <div className="text-lg font-black text-white mt-0.5">
+            <div className="text-base sm:text-lg font-black text-white mt-0.5">
               Worth{' '}
               <span className="text-emerald-400">+{coinsToEarn} FitCoins</span>{' '}
               <span className="text-xs text-slate-400 font-normal">
@@ -170,14 +172,13 @@ export const HomeTab: React.FC = () => {
           <button
             disabled={coinsToEarn < 1}
             onClick={triggerConvert}
-            className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-sm rounded-xl shadow-lg shadow-emerald-500/20 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full sm:w-auto px-5 sm:px-6 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 active:scale-98 text-slate-950 font-black text-xs sm:text-sm rounded-xl shadow-lg shadow-emerald-500/20 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 touch-manipulation"
           >
-            <Tv className="w-4 h-4" />
+            <Tv className="w-4 h-4 shrink-0" />
             <span>Watch Ad &amp; Convert (+{coinsToEarn} Coins)</span>
           </button>
         </div>
       </div>
-
       {/* 2-Column Action Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Lucky Spin Wheel Card */}

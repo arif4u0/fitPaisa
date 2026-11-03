@@ -22,9 +22,9 @@ export const WalletTab: React.FC = () => {
   const rupeesMaturing = (user.maturingCoins / 100).toFixed(2);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4 sm:space-y-6">
       {/* Wallet Balance Hero Card */}
-      <div className="p-6 sm:p-8 bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950/50 border border-slate-800 rounded-3xl shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <div className="p-5 sm:p-8 bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950/50 border border-slate-800 rounded-2xl sm:rounded-3xl shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-5 sm:gap-6">
         <div className="space-y-2">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
             <Wallet className="w-3.5 h-3.5" />
