@@ -632,49 +632,59 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
 @Composable
 private fun TopBar(userName: String, levelName: String) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(ForestGreenCard)
+            .border(1.dp, CardBorder, RoundedCornerShape(24.dp))
+            .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        CoinLogo(size = 40.dp)
-        Spacer(Modifier.width(10.dp))
-        Column {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Brush.linearGradient(listOf(NeonEmerald, NeonTeal))),
+            contentAlignment = Alignment.Center
+        ) {
             Text(
-                text = "fitPaisa",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.ExtraBold,
-                color = CreamWhite,
-                letterSpacing = (-0.5).sp
-            )
-            Text(
-                text = "Earn Real Cash By Walking",
-                style = MaterialTheme.typography.labelSmall,
-                color = GoldLight,
-                fontWeight = FontWeight.Medium
+                text = userName.take(1).uppercase().ifBlank { "F" },
+                color = OnGold,
+                fontWeight = FontWeight.Black,
+                fontSize = 20.sp
             )
         }
-        Spacer(Modifier.weight(1f))
-
-        // Level pill
-        Row(
-            modifier = Modifier
-                .clip(RoundedCornerShape(50))
-                .background(ForestGreenCard)
-                .border(1.dp, CardBorderGlow, RoundedCornerShape(50))
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Filled.LocalFireDepartment,
-                contentDescription = null,
-                tint = Gold,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(Modifier.width(4.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Hello, $userName!",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = CreamWhite
+                )
+                Spacer(Modifier.width(6.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(NeonEmerald.copy(alpha = 0.15f))
+                        .border(1.dp, NeonEmerald.copy(alpha = 0.3f), RoundedCornerShape(50))
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = levelName,
+                        color = NeonEmerald,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            Spacer(Modifier.height(2.dp))
             Text(
-                text = levelName,
-                color = CreamWhite,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
+                text = "Walk today, earn tomorrow • 100 steps = 1 coin",
+                style = MaterialTheme.typography.bodySmall,
+                color = MutedSage,
+                fontSize = 11.sp
             )
         }
     }
@@ -794,9 +804,9 @@ private fun ConvertSection(
         convertState != ConvertUiState.Converting
 
     val buttonGradient = if (canConvert) {
-        Brush.horizontalGradient(listOf(GoldLight, Gold, GoldDark))
+        Brush.horizontalGradient(listOf(NeonEmerald, NeonTeal))
     } else {
-        Brush.horizontalGradient(listOf(Gold.copy(alpha = 0.25f), Gold.copy(alpha = 0.20f)))
+        Brush.horizontalGradient(listOf(NeonEmerald.copy(alpha = 0.25f), NeonTeal.copy(alpha = 0.20f)))
     }
 
     Column(
@@ -810,7 +820,7 @@ private fun ConvertSection(
                 .shadow(
                     elevation = if (canConvert) 10.dp else 0.dp,
                     shape = RoundedCornerShape(20.dp),
-                    spotColor = GoldGlow
+                    spotColor = NeonEmeraldGlow
                 )
                 .clip(RoundedCornerShape(20.dp))
                 .background(buttonGradient)

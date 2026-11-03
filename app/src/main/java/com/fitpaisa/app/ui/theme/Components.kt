@@ -58,7 +58,7 @@ fun CoinLogo(
 
         // Outer ambient glow ring
         drawCircle(
-            color = GoldGlow,
+            color = NeonEmeraldGlow,
             radius = radius,
             center = center
         )
@@ -279,7 +279,7 @@ fun DrawScope.goldArcSegment(
     sweepDegrees: Float,
     strokeWidthPx: Float,
     trackColor: Color = RingTrack,
-    progressColor: Color = Gold
+    progressColor: Color = NeonEmerald
 ) {
     // Background track
     drawArc(
@@ -297,7 +297,7 @@ fun DrawScope.goldArcSegment(
     if (sweepDegrees > 0f) {
         // Subtle outer glow arc
         drawArc(
-            color = GoldGlow,
+            color = NeonEmeraldGlow,
             startAngle = -90f,
             sweepAngle = sweepDegrees,
             useCenter = false,

@@ -3,29 +3,31 @@ package com.fitpaisa.app.ui.theme
 import androidx.compose.ui.graphics.Color
 
 /**
- * fitPaisa modern luxury brand palette (v3 redesign):
- * Deep obsidian emerald background with glowing electric gold & neon fitness accents.
- * Designed for high-contrast readability, sleek fintech glassmorphism, and premium feel.
+ * FitPaisa signature brand palette:
+ * Modern deep midnight obsidian slate (#020617 / #0B1329) with glowing
+ * neon emerald (#10B981), electric cyan (#06B6D4), and radiant gold (#F59E0B / #FFC72C).
+ * Matches the official web preview interface exactly.
  */
-val ForestGreen = Color(0xFF071913)        // Ultra-deep obsidian emerald background
-val ForestGreenSurface = Color(0xFF0D261E) // Surface container
-val ForestGreenCard = Color(0xFF133227)    // Elevated card surfaces
-val CardBorder = Color(0xFF1E4939)         // Subtle premium card border
-val CardBorderGlow = Color(0x33FFC72C)     // Subtle gold card border highlight
-val NavBarGreen = Color(0xFF05140F)        // Glass bottom navigation bar
+val ForestGreen = Color(0xFF020617)        // Deep midnight slate background
+val ForestGreenSurface = Color(0xFF0B1329) // Sleek surface container
+val ForestGreenCard = Color(0xFF0F172A)    // Elevated card surfaces (slate-900)
+val CardBorder = Color(0xFF1E293B)         // Crisp border stroke (slate-800)
+val CardBorderGlow = Color(0x3310B981)     // Subtle emerald border glow
+val NavBarGreen = Color(0xFF090E1A)        // Modern bottom navigation bar
+val RingTrack = Color(0xFF1E293B)          // Ring background track
 
-val RingTrack = Color(0xFF15382B)          // Progress ring background track
-val NeonEmerald = Color(0xFF00E676)        // Active step neon accent
-val NeonEmeraldGlow = Color(0x3300E676)    // Step ring glow
-
-val Gold = Color(0xFFFFC72C)               // Primary vibrant metallic gold
+// Vibrant Accents
+val NeonEmerald = Color(0xFF10B981)        // Primary vibrant emerald
+val NeonTeal = Color(0xFF06B6D4)           // Electric teal / cyan
+val NeonEmeraldGlow = Color(0x4010B981)    // Ambient emerald glow
+val Gold = Color(0xFFFFC72C)               // Metallic gold
 val GoldLight = Color(0xFFFFE585)          // Radiant champagne highlight
-val GoldDark = Color(0xFFD99B00)           // Deep burnished gold
+val GoldDark = Color(0xFFD99B00)           // Burnished gold
 val GoldGlow = Color(0x40FFC72C)           // Ambient gold glow
-val OnGold = Color(0xFF061A12)             // High-contrast dark text on gold buttons
-
+val AmberFlame = Color(0xFFF59E0B)         // Streak flame amber
+val OnGold = Color(0xFF020617)             // Dark text on gold/emerald buttons
 val CreamWhite = Color(0xFFF8FAFC)         // Crisp primary text
-val MutedSage = Color(0xFF90A89C)          // Secondary muted text
-val SuccessGreen = Color(0xFF10B981)       // Verified/success status
-val ErrorRed = Color(0xFFF43F5E)           // Errors / alerts
-val GoogleBlue = Color(0xFF4285F4)         // Google sign-in blue
+val MutedSage = Color(0xFF94A3B8)          // Secondary muted text (slate-400)
+val SuccessGreen = Color(0xFF10B981)       // Verified / success
+val ErrorRed = Color(0xFFF43F5E)           // Alerts / error
+val GoogleBlue = Color(0xFF4285F4)         // Google sign-in
