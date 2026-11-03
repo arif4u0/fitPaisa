@@ -1,0 +1,823 @@
+From 91e92c16983077d89637a142644a4cddcba21428 Mon Sep 17 00:00:00 2001
+From: FitPaisa Engineer <engineer@fitpaisa.com>
+Date: Sun, 25 Oct 2026 13:19:16 +0000
+Subject: [PATCH] fix(ads, rewards, security): update Unity Ads manager, delta
+ step conversion, and wallet security
+
+- AdsConfig.kt: Game ID 800410563, placement BP_Rewarded_Android, dynamic UNITY_TEST_MODE via BuildConfig.DEBUG (real ads on signed release APK).
+- AdManager.kt: Add 3.5s warm-up await loop, auto-retry backoff, UnityAds.setDebugMode, and verbose logcat tagging.
+- sync-steps: Fix Postgres 23505 duplicate key bug by using delta range in source_id so multi-conversions per day succeed without dropping coins.
+- request-cashout: Enforce 11-digit Pakistani phone validation and 1 pending cashout limit.
+- 015_wallet_security.sql: Add pg_advisory_xact_lock against double-spend races, single-pending cashout limit, and view_sybil_wallet_alerts.
+---
+ .../com/fitpaisa/app/core/ads/AdManager.kt    | 143 ++++++++++-----
+ .../com/fitpaisa/app/core/ads/AdsConfig.kt    |  37 ++--
+ supabase/functions/request-cashout/index.ts   |  32 +++-
+ supabase/functions/sync-steps/index.ts        |  62 ++++---
+ supabase/migrations/015_wallet_security.sql   | 164 ++++++++++++++++++
+ 5 files changed, 354 insertions(+), 84 deletions(-)
+ create mode 100644 supabase/migrations/015_wallet_security.sql
+
+diff --git a/app/src/main/java/com/fitpaisa/app/core/ads/AdManager.kt b/app/src/main/java/com/fitpaisa/app/core/ads/AdManager.kt
+index 4eb1fc4..d5bfa26 100644
+--- a/app/src/main/java/com/fitpaisa/app/core/ads/AdManager.kt
++++ b/app/src/main/java/com/fitpaisa/app/core/ads/AdManager.kt
+@@ -2,40 +2,54 @@ package com.fitpaisa.app.core.ads
+ 
+ import android.app.Activity
+ import android.content.Context
++import android.util.Log
++import com.fitpaisa.app.BuildConfig
+ import com.unity3d.ads.IUnityAdsInitializationListener
+ import com.unity3d.ads.IUnityAdsLoadListener
+ import com.unity3d.ads.IUnityAdsShowListener
+ import com.unity3d.ads.UnityAds
+ import com.unity3d.ads.UnityAdsShowOptions
+ import dagger.hilt.android.qualifiers.ApplicationContext
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.delay
++import kotlinx.coroutines.launch
+ import kotlinx.coroutines.suspendCancellableCoroutine
++import kotlinx.coroutines.withTimeoutOrNull
+ import javax.inject.Inject
+ import javax.inject.Singleton
+ import kotlin.coroutines.resume
+ 
+ /**
+- * Manages rewarded ads. Unity only for now.
+- *
+- * AdMob was temporarily disabled 2026-10-25 (user's call): AdManager no
+- * longer injects or calls AdMobManager, so no AdMob ad is ever loaded or
+- * shown. AdMobManager.kt and the AdMob IDs in AdsConfig are kept untouched
+- * so AdMob can be switched back on later by restoring the AdMob-first
+- * logic in showRewarded()/preload()/isReady() below.
+- *
+- * The step→coin Convert flow shows an ad first, and only calls the
+- * server to credit coins after the user watches it to the end.
++ * Manages rewarded ads via Unity Ads with automatic preloading,
++ * failure retry backoff, and a warm-up wait window for immediate ad playback.
+  */
+ @Singleton
+ class AdManager @Inject constructor(
+     @ApplicationContext private val context: Context
+ ) {
++    companion object {
++        private const val TAG = "FitPaisaAds"
++        private const val MAX_AWAIT_TIME_MS = 3500L
++        private const val POLL_INTERVAL_MS = 250L
++    }
++
++    private val scope = CoroutineScope(Dispatchers.Main)
+     private var isInitialized = false
+     private var isLoading = false
+     private var isLoaded = false
++    private var retryAttempt = 0
++
+     var lastError: String = "Not initialized yet"
+         private set
+ 
+     init {
++        initialize()
++    }
++
++    private fun initialize() {
++        Log.d(TAG, "Initializing Unity Ads. GameID: ${AdsConfig.UNITY_GAME_ID}, TestMode: ${AdsConfig.UNITY_TEST_MODE}")
++        UnityAds.setDebugMode(BuildConfig.DEBUG)
+         UnityAds.initialize(
+             context,
+             AdsConfig.UNITY_GAME_ID,
+@@ -43,6 +57,8 @@ class AdManager @Inject constructor(
+             object : IUnityAdsInitializationListener {
+                 override fun onInitializationComplete() {
+                     isInitialized = true
++                    lastError = "Unity Ads initialized successfully"
++                    Log.d(TAG, "Unity Ads initialization completed successfully.")
+                     preload()
+                 }
+ 
+@@ -52,22 +68,40 @@ class AdManager @Inject constructor(
+                 ) {
+                     isInitialized = false
+                     lastError = "Init failed: $error - $message"
++                    Log.e(TAG, "Unity Ads initialization failed: $error - $message")
+                 }
+             }
+         )
+     }
+ 
+-    /** Preloads a rewarded ad so it's ready when the user taps Convert. */
++    /** Preloads a rewarded ad so it's ready when the user taps Convert or Spin. */
+     fun preload() {
+-        if (!isInitialized || isLoaded || isLoading) return
++        if (!isInitialized) {
++            Log.d(TAG, "Preload requested but Unity Ads is not initialized yet. Calling initialize().")
++            initialize()
++            return
++        }
++        if (isLoaded) {
++            Log.d(TAG, "Rewarded ad is already loaded and ready.")
++            return
++        }
++        if (isLoading) {
++            Log.d(TAG, "Rewarded ad is currently loading. Skipping duplicate preload.")
++            return
++        }
++
+         isLoading = true
++        Log.d(TAG, "Requesting Unity Ads load for placement: ${AdsConfig.UNITY_REWARDED_AD_UNIT_ID}")
++
+         UnityAds.load(
+             AdsConfig.UNITY_REWARDED_AD_UNIT_ID,
+             object : IUnityAdsLoadListener {
+                 override fun onUnityAdsAdLoaded(adUnitId: String) {
+                     isLoaded = true
+                     isLoading = false
++                    retryAttempt = 0
+                     lastError = "Ad loaded OK"
++                    Log.d(TAG, "Unity rewarded ad loaded successfully for placement: $adUnitId")
+                 }
+ 
+                 override fun onUnityAdsFailedToLoad(
+@@ -78,29 +112,50 @@ class AdManager @Inject constructor(
+                     isLoaded = false
+                     isLoading = false
+                     lastError = "Load failed: $error - $message"
++                    Log.e(TAG, "Unity Ads failed to load: $error - $message (Placement: $adUnitId)")
++
++                    // Auto-retry with backoff up to 30 seconds
++                    retryAttempt++
++                    val backoffSeconds = (retryAttempt * 5).coerceAtMost(30)
++                    Log.d(TAG, "Scheduling retry #$retryAttempt in ${backoffSeconds}s")
++                    scope.launch {
++                        delay(backoffSeconds * 1000L)
++                        if (!isLoaded && !isLoading) {
++                            preload()
++                        }
++                    }
+                 }
+             }
+         )
+     }
+ 
+     /**
+-     * Shows the rewarded ad: Unity only for now.
+-     *
+-     * AdMob is temporarily disabled (2026-10-25): the AdMob-first attempt
+-     * was removed here, so every rewarded ad (Convert, Daily Ads, Spin)
+-     * now goes straight to Unity. To re-enable AdMob later, restore the
+-     * AdMob attempt before the Unity fallback.
+-     *
+-     * The old Boolean result mixed up two very different failures: an ad
+-     * that was unavailable, and an ad the user closed early. Callers need
+-     * to tell them apart, because an unavailable ad should not block the
+-     * core walk-to-earn loop while an ad network is unreliable.
++     * Shows the rewarded ad.
++     * If the ad is still loading, awaits up to 3.5s before reporting NOT_READY,
++     * preventing false "ad not ready" dialogs right after app open.
+      */
+     suspend fun showRewarded(activity: Activity): AdOutcome {
++        // If not loaded, give it a warm-up window of up to 3.5 seconds
++        if (!isLoaded) {
++            Log.d(TAG, "Ad not loaded at tap time. Waiting up to ${MAX_AWAIT_TIME_MS}ms for load completion...")
++            preload()
++            val loadedInTime = withTimeoutOrNull(MAX_AWAIT_TIME_MS) {
++                while (!isLoaded && isLoading) {
++                    delay(POLL_INTERVAL_MS)
++                }
++                isLoaded
++            } ?: false
++
++            if (!loadedInTime && !isLoaded) {
++                Log.w(TAG, "Ad was not ready after warm-up wait. Returning NOT_READY.")
++                return AdOutcome.NOT_READY
++            }
++        }
++
+         return showUnityRewarded(activity)
+     }
+ 
+-    /** Unity rewarded path (the only ad path while AdMob is disabled). */
++    /** Unity rewarded show execution. */
+     private suspend fun showUnityRewarded(activity: Activity): AdOutcome =
+         suspendCancellableCoroutine { cont ->
+             if (!isLoaded) {
+@@ -108,17 +163,22 @@ class AdManager @Inject constructor(
+                 cont.resume(AdOutcome.NOT_READY)
+                 return@suspendCancellableCoroutine
+             }
+-            isLoaded = false // consume it
+-            preload() // load the next one
+ 
++            // Consume currently loaded ad
++            isLoaded = false
+             var settled = false
++
+             fun settle(result: AdOutcome) {
+                 if (!settled) {
+                     settled = true
++                    // Immediately pre-fetch the next ad for future actions
++                    preload()
+                     cont.resume(result)
+                 }
+             }
+ 
++            Log.d(TAG, "Showing Unity rewarded ad on placement: ${AdsConfig.UNITY_REWARDED_AD_UNIT_ID}")
++
+             UnityAds.show(
+                 activity,
+                 AdsConfig.UNITY_REWARDED_AD_UNIT_ID,
+@@ -130,25 +190,28 @@ class AdManager @Inject constructor(
+                         message: String
+                     ) {
+                         lastError = "Show failed: $error - $message"
++                        Log.e(TAG, "Unity Ads show failed: $error - $message")
+                         settle(AdOutcome.NOT_READY)
+                     }
+ 
+-                    override fun onUnityAdsShowStart(adUnitId: String) {}
++                    override fun onUnityAdsShowStart(adUnitId: String) {
++                        Log.d(TAG, "Unity Ads show started.")
++                    }
+ 
+-                    override fun onUnityAdsShowClick(adUnitId: String) {}
++                    override fun onUnityAdsShowClick(adUnitId: String) {
++                        Log.d(TAG, "Unity Ads ad clicked by user.")
++                    }
+ 
+                     override fun onUnityAdsShowComplete(
+                         adUnitId: String,
+                         state: UnityAds.UnityAdsShowCompletionState
+                     ) {
+-                        // COMPLETED = watched to the end.
+-                        settle(
+-                            if (state == UnityAds.UnityAdsShowCompletionState.COMPLETED) {
+-                                AdOutcome.WATCHED
+-                            } else {
+-                                AdOutcome.SKIPPED
+-                            }
+-                        )
++                        Log.d(TAG, "Unity Ads show completed with state: $state")
++                        if (state == UnityAds.UnityAdsShowCompletionState.COMPLETED) {
++                            settle(AdOutcome.WATCHED)
++                        } else {
++                            settle(AdOutcome.SKIPPED)
++                        }
+                     }
+                 }
+             )
+@@ -160,12 +223,10 @@ class AdManager @Inject constructor(
+ 
+ /** What happened when a rewarded ad was requested. */
+ enum class AdOutcome {
+-    /** The user watched the ad to the end. */
++    /** The user watched the ad to the end. Reward granted. */
+     WATCHED,
+-
+-    /** No ad was ready or it failed to load/show. Not the user's fault. */
++    /** No ad was ready or it failed to load/show. */
+     NOT_READY,
+-
+-    /** An ad started but the user closed it before it finished. */
++    /** An ad started but the user closed it before it finished. No reward. */
+     SKIPPED
+ }
+diff --git a/app/src/main/java/com/fitpaisa/app/core/ads/AdsConfig.kt b/app/src/main/java/com/fitpaisa/app/core/ads/AdsConfig.kt
+index e5a39fc..6bd8662 100644
+--- a/app/src/main/java/com/fitpaisa/app/core/ads/AdsConfig.kt
++++ b/app/src/main/java/com/fitpaisa/app/core/ads/AdsConfig.kt
+@@ -1,27 +1,30 @@
+ package com.fitpaisa.app.core.ads
+ 
++import com.fitpaisa.app.BuildConfig
++
+ /**
+- * Ad network configuration.
++ * Ad network configuration for FitPaisa.
++ *
++ * Unity Ads is the primary rewarded video provider.
++ * Game ID and Rewarded Ad Unit ID match the active placement in the Unity Dashboard.
+  *
+- * AdMob is now the primary network (real IDs from admob.google.com).
+- * Unity Ads stays as a fallback. Debug builds use Google's official
+- * AdMob test ad unit so testing never counts as a real-ad click.
++ * UNITY_TEST_MODE is automatically set to:
++ * - true in DEBUG builds (test ads with watermark, safe for local testing)
++ * - false in RELEASE signed builds (serves REAL live ads and pays real revenue)
+  */
+ object AdsConfig {
+-    // AdMob: real fitPaisa rewarded ad unit (release builds only).
+-    const val ADMOB_REWARDED_AD_UNIT_ID = "ca-app-pub-7360446604215991/5669568491"
++    // Unity Ads Game ID from Unity Dashboard (Project: 800410563)
++    const val UNITY_GAME_ID = "800410563"
+ 
+-    // Google's official test rewarded ad unit (debug builds only).
+-    const val ADMOB_TEST_REWARDED_AD_UNIT_ID = "ca-app-pub-3940256099942544/5224354917"
++    // Unity Ads Rewarded Placement ID (Active placement: BP_Rewarded_Android)
++    const val UNITY_REWARDED_AD_UNIT_ID = "BP_Rewarded_Android"
+ 
+-    // Kept for reference; use ADMOB_REWARDED_AD_UNIT_ID for real ads.
+-    const val REWARDED_AD_UNIT_ID = ADMOB_TEST_REWARDED_AD_UNIT_ID
++    // Automatic environment toggle:
++    // Debug builds -> test ads; Release builds (signed release APK) -> REAL production ads
++    val UNITY_TEST_MODE: Boolean = BuildConfig.DEBUG
+ 
+-    // Unity Ads (fallback). New Unity project created 2026-10-25
+-    // (screenshot Game ID) — replaces the old 800396858 project.
+-    const val UNITY_GAME_ID = "800410563"
+-    // Unity Ads test rewarded ad unit ID. Replace with your real one.
+-    const val UNITY_REWARDED_AD_UNIT_ID = "BP_Rewarded_Android"
+-    // Set to false before release.
+-    const val UNITY_TEST_MODE = true
++    // Legacy AdMob IDs preserved for future multi-network mediation fallback
++    const val ADMOB_REWARDED_AD_UNIT_ID = "ca-app-pub-7360446604215991/5669568491"
++    const val ADMOB_TEST_REWARDED_AD_UNIT_ID = "ca-app-pub-3940256099942544/5224354917"
++    const val REWARDED_AD_UNIT_ID = ADMOB_TEST_REWARDED_AD_UNIT_ID
+ }
+diff --git a/supabase/functions/request-cashout/index.ts b/supabase/functions/request-cashout/index.ts
+index d6d1644..96ae7bd 100644
+--- a/supabase/functions/request-cashout/index.ts
++++ b/supabase/functions/request-cashout/index.ts
+@@ -6,9 +6,10 @@
+  *
+  * Auth: user JWT (Authorization: Bearer <access_token>).
+  * Minimum 10,000 coins (= Rs 100). Coins are reserved immediately via the
+- * atomic public.request_cashout() RPC. The founder reviews in the admin
+- * screen: marks paid (after sending money) or rejected (coins refunded).
++ * atomic public.request_cashout() RPC which enforces pg_advisory_xact_lock
++ * against double-spend races and limits users to 1 concurrent pending cashout.
+  */
++
+ import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
+ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
+ 
+@@ -28,6 +29,7 @@ async function getUserId(req: Request): Promise<{ userId: string | null; reason:
+   if (!authHeader) return { userId: null, reason: "no_auth_header" };
+   const jwt = authHeader.replace(/^Bearer\s+/i, "");
+   if (!jwt) return { userId: null, reason: "empty_bearer_token" };
++
+   const service = createClient(SUPABASE_URL, SERVICE_KEY, {
+     auth: { persistSession: false },
+   });
+@@ -51,20 +53,34 @@ serve(async (req: Request) => {
+   }
+ 
+   const coins = Number(body["coins"] ?? 0);
+-  const method = String(body["method"] ?? "");
++  const method = String(body["method"] ?? "").toLowerCase().trim();
+   const accountTitle = String(body["account_title"] ?? "").trim();
+-  const accountNumber = String(body["account_number"] ?? "").trim();
++  const rawAccountNumber = String(body["account_number"] ?? "").trim();
++  const accountNumber = rawAccountNumber.replace(/[\s\-]/g, "");
+ 
+   if (!Number.isInteger(coins) || coins < MIN_COINS) {
+     return json({ error: "below_minimum", min_coins: MIN_COINS }, 400);
+   }
++
+   if (!["easypaisa", "jazzcash", "bank"].includes(method)) {
+     return json({ error: "bad_method" }, 400);
+   }
++
+   if (!accountTitle || !accountNumber) {
+     return json({ error: "missing_account_details" }, 400);
+   }
+ 
++  // Validate mobile wallet numbers for Pakistani providers (03XXXXXXXXX or +923XXXXXXXXX)
++  if (method === "easypaisa" || method === "jazzcash") {
++    const isPkMobile = /^(03[0-9]{9}|\+923[0-9]{9}|923[0-9]{9})$/.test(accountNumber);
++    if (!isPkMobile) {
++      return json({
++        error: "invalid_phone_number",
++        message: "Please enter a valid 11-digit Pakistani mobile number (e.g. 03001234567)."
++      }, 400);
++    }
++  }
++
+   const db = createClient(SUPABASE_URL, SERVICE_KEY, {
+     auth: { persistSession: false },
+   });
+@@ -81,8 +97,14 @@ serve(async (req: Request) => {
+     const msg = error.message ?? "";
+     if (msg.includes("below_minimum")) return json({ error: "below_minimum", min_coins: MIN_COINS }, 400);
+     if (msg.includes("insufficient_coins")) return json({ error: "insufficient_coins" }, 400);
++    if (msg.includes("pending_cashout_exists")) {
++      return json({
++        error: "pending_cashout_exists",
++        message: "You already have a cashout request pending admin review. Please wait for it to be processed."
++      }, 400);
++    }
+     if (msg.includes("bad_method")) return json({ error: "bad_method" }, 400);
+-    return json({ error: "cashout_failed" }, 500);
++    return json({ error: "cashout_failed", details: msg }, 500);
+   }
+ 
+   return json({
+diff --git a/supabase/functions/sync-steps/index.ts b/supabase/functions/sync-steps/index.ts
+index ad7e592..11294da 100644
+--- a/supabase/functions/sync-steps/index.ts
++++ b/supabase/functions/sync-steps/index.ts
+@@ -13,17 +13,17 @@
+  *   - The user's CURRENT level (from profiles) decides the daily_step_cap.
+  *   - eligible = min(observed, level_cap); manual-entry data is excluded.
+  *   - new_steps = max(0, eligible - already_credited)
+- *   - coins = floor(new_steps / steps_per_coin), posted ONCE per
+- *     (user, date, rule_version) via UNIQUE(source_type, source_id).
+- *     Replays credit zero.
++ *   - coins = floor(new_steps / steps_per_coin), posted securely per delta batch:
++ *     source_id = `steps:${userId}:${localDate}:${alreadyCredited}_${alreadyCredited + newSteps}:v${ruleVersion}`
++ *     This allows users to convert steps multiple times a day without hitting duplicate key errors.
+  *   - profiles.lifetime_steps += new_steps; level recomputed from thresholds.
+  *   - Coins are posted 'held' and mature after reward_hold_days (7).
+  */
++
+ import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
+ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
+ 
+ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+-const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+ 
+ function json(body: unknown, status = 200): Response {
+@@ -44,8 +44,7 @@ async function getUserId(req: Request): Promise<{ userId: string | null; reason:
+   if (!authHeader) return { userId: null, reason: "no_auth_header" };
+   const jwt = authHeader.replace(/^Bearer\s+/i, "");
+   if (!jwt) return { userId: null, reason: "empty_bearer_token" };
+-  // Verify the JWT with the service-role client and the explicit token.
+-  // (Does not depend on the anon key, which is auto-injected and never set manually.)
++
+   const service = createClient(SUPABASE_URL, SERVICE_KEY, {
+     auth: { persistSession: false },
+   });
+@@ -88,6 +87,16 @@ serve(async (req: Request) => {
+     return json({ error: "invalid_payload" }, 400);
+   }
+ 
++  // Date format & drift validation (YYYY-MM-DD, within +-28h of UTC now)
++  const parsedDate = new Date(localDate + "T00:00:00Z");
++  if (isNaN(parsedDate.getTime())) {
++    return json({ error: "invalid_date_format" }, 400);
++  }
++  const dateDriftHours = Math.abs(Date.now() - parsedDate.getTime()) / 3600_000;
++  if (dateDriftHours > 36) {
++    return json({ error: "date_drift_exceeded" }, 400);
++  }
++
+   const db = serviceClient();
+ 
+   // Idempotency: a retried sync with the same key is a no-op.
+@@ -105,6 +114,7 @@ serve(async (req: Request) => {
+     .eq("key", "rule_version")
+     .single();
+   const ruleVersion: number = (cfg?.value as number) ?? 1;
++
+   const { data: rule, error: ruleErr } = await db
+     .from("reward_rules")
+     .select("*")
+@@ -113,26 +123,27 @@ serve(async (req: Request) => {
+   if (ruleErr || !rule) return json({ error: "no_active_rule" }, 500);
+ 
+   // User's current level -> per-level daily step cap.
+-  // If the profile row is missing (sign-in trigger did not run), create it
+-  // so lifetime steps, levels and the leaderboard can track this user.
+   let { data: profile } = await db
+     .from("profiles")
+-    .select("level, lifetime_steps")
++    .select("level, lifetime_steps, streak_days, last_streak_date")
+     .eq("id", userId)
+     .maybeSingle();
++
+   if (!profile) {
+     await db.from("profiles").upsert(
+       { id: userId, level: 1, lifetime_steps: 0 },
+       { onConflict: "id", ignoreDuplicates: true },
+     );
+-    profile = { level: 1, lifetime_steps: 0 };
++    profile = { level: 1, lifetime_steps: 0, streak_days: 0, last_streak_date: null };
+   }
++
+   const userLevel: number = (profile?.level as number) ?? 1;
+   const { data: levelRow } = await db
+     .from("levels")
+     .select("daily_step_cap")
+     .eq("level", userLevel)
+     .maybeSingle();
++
+   const dailyCap: number =
+     (levelRow?.daily_step_cap as number) ?? (rule.daily_step_cap as number);
+ 
+@@ -147,6 +158,7 @@ serve(async (req: Request) => {
+     .eq("user_id", userId)
+     .eq("local_date", localDate)
+     .maybeSingle();
++
+   const alreadyCredited: number = day?.credited_steps ?? 0;
+   const newSteps = Math.max(0, eligibleTotal - alreadyCredited);
+   const coins = Math.floor(newSteps / (rule.steps_per_coin as number));
+@@ -161,6 +173,7 @@ serve(async (req: Request) => {
+     source_summary: sourceSummary ?? {},
+     app_version: appVersion ?? null,
+   });
++
+   if (evErr && (evErr as { code?: string }).code === "23505") {
+     return json({ ok: true, deduped: true });
+   }
+@@ -179,12 +192,14 @@ serve(async (req: Request) => {
+     { onConflict: "user_id,local_date" },
+   );
+ 
+-  // Post the held credit once. UNIQUE(source_type, source_id) makes replays
+-  // (same day + rule version) credit zero instead of double-paying.
++  // Post the held credit per delta batch.
++  // Using sequential step ranges avoids the 23505 duplicate collision on multi-conversions per day!
+   let ledgerId: string | null = null;
+   if (coins > 0) {
+     const holdDays = rule.reward_hold_days as number;
+     const availableAt = new Date(Date.now() + holdDays * 86400_000).toISOString();
++    const sourceId = `steps:${userId}:${localDate}:${alreadyCredited}_${alreadyCredited + newSteps}:v${ruleVersion}`;
++
+     const { data: entry, error: leErr } = await db
+       .from("ledger_entries")
+       .insert({
+@@ -192,21 +207,22 @@ serve(async (req: Request) => {
+         amount_coins: coins,
+         state: "held",
+         source_type: "steps",
+-        source_id: `steps:${userId}:${localDate}:v${ruleVersion}`,
++        source_id: sourceId,
+         rule_version: ruleVersion,
+         available_at: availableAt,
+         metadata: {
+           observed_total: observedTotal,
+           eligible_total: eligibleTotal,
+           new_steps: newSteps,
++          already_credited: alreadyCredited,
+           level: userLevel,
+           daily_cap: dailyCap,
+         },
+       })
+       .select("id")
+       .maybeSingle();
++
+     if (!leErr) ledgerId = entry?.id ?? null;
+-    // 23505 here = this day/rule was already credited; treat as replay, no error.
+   }
+ 
+   // Advance lifetime steps and recompute level from thresholds.
+@@ -220,6 +236,7 @@ serve(async (req: Request) => {
+       .order("level", { ascending: false })
+       .limit(1)
+       .maybeSingle();
++
+     const newLevel: number = (newLevelRow?.level as number) ?? userLevel;
+     finalLevel = newLevel;
+     await db
+@@ -229,22 +246,22 @@ serve(async (req: Request) => {
+   }
+ 
+   // Daily streak: consecutive days with a conversion (coins > 0).
+-  // Yesterday → increment; today already counted → keep; otherwise reset to 1.
+-  // Milestone bonuses: 7 days = 25 coins, 14 = 50, 30 = 100 (available immediately).
+   let streakDays: number = (profile?.streak_days as number) ?? 0;
+   let streakBonus = 0;
+   if (coins > 0) {
+     const lastStreak: string | null = (profile?.last_streak_date as string) ?? null;
+-    const today = localDate; // YYYY-MM-DD
++    const today = localDate;
+     const yesterday = new Date(new Date(today + "T00:00:00Z").getTime() - 86400_000)
+       .toISOString().slice(0, 10);
++
+     if (lastStreak === today) {
+-      // Already counted today — no change.
++      // Already counted today — keep
+     } else if (lastStreak === yesterday) {
+       streakDays += 1;
+     } else {
+       streakDays = 1;
+     }
++
+     const milestones: Record<number, number> = { 7: 25, 14: 50, 30: 100 };
+     if (milestones[streakDays]) {
+       streakBonus = milestones[streakDays];
+@@ -259,14 +276,14 @@ serve(async (req: Request) => {
+         metadata: { streak_days: streakDays },
+       });
+     }
++
+     await db
+       .from("profiles")
+       .update({ streak_days: streakDays, last_streak_date: today })
+       .eq("id", userId);
+   }
+ 
+-  // Daily challenge: if today's eligible steps hit the target and the bonus
+-  // hasn't been claimed yet, award bonus coins (available immediately).
++  // Daily challenge: if today's eligible steps hit target and not yet claimed
+   let challengeBonus = 0;
+   let challengeTarget = 0;
+   {
+@@ -284,6 +301,7 @@ serve(async (req: Request) => {
+         .eq("user_id", userId)
+         .eq("local_date", localDate)
+         .maybeSingle();
++
+       if (!dayRow?.challenge_bonus_claimed) {
+         challengeBonus = bonusCoins;
+         await db.from("ledger_entries").insert({
+@@ -296,6 +314,7 @@ serve(async (req: Request) => {
+           available_at: new Date().toISOString(),
+           metadata: { target_steps: challengeTarget, eligible_total: eligibleTotal },
+         });
++
+         await db
+           .from("daily_steps")
+           .update({ challenge_bonus_claimed: true })
+@@ -305,7 +324,7 @@ serve(async (req: Request) => {
+     }
+   }
+ 
+-  // Achievements: unlock milestone badges (idempotent via PK).
++  // Achievements
+   {
+     const toUnlock: string[] = [];
+     if (eligibleTotal >= 10000) toUnlock.push("first_10k_day");
+@@ -315,6 +334,7 @@ serve(async (req: Request) => {
+     if (lifetime >= 1000000) toUnlock.push("lifetime_1m");
+     if (streakDays >= 7) toUnlock.push("streak_7");
+     if (streakDays >= 30) toUnlock.push("streak_30");
++
+     for (const ach of toUnlock) {
+       await db.from("user_achievements").upsert(
+         { user_id: userId, achievement_id: ach },
+diff --git a/supabase/migrations/015_wallet_security.sql b/supabase/migrations/015_wallet_security.sql
+new file mode 100644
+index 0000000..2754dc2
+--- /dev/null
++++ b/supabase/migrations/015_wallet_security.sql
+@@ -0,0 +1,164 @@
++-- 015_wallet_security.sql
++-- Hardens wallet transactions against concurrency double-spend races,
++-- limits pending cashouts to 1 per user, and adds sybil account fraud detection.
++
++-- 1. Hardened atomic cashout request RPC
++create or replace function public.request_cashout(
++  p_user_id uuid,
++  p_coins integer,
++  p_method text,
++  p_account_title text,
++  p_account_number text
++)
++returns uuid
++language plpgsql
++security definer
++set search_path = public
++as $$
++declare
++  v_available integer;
++  v_min_coins integer := 10000; -- Rs 100 minimum (100 coins = 1 PKR)
++  v_paisa integer;
++  v_request_id uuid;
++begin
++  -- Concurrency guard: serialize concurrent requests per user
++  perform pg_advisory_xact_lock(hashtext(p_user_id::text));
++
++  -- Minimum threshold check
++  if p_coins < v_min_coins then
++    raise exception 'below_minimum';
++  end if;
++
++  -- Method validation
++  if p_method not in ('easypaisa', 'jazzcash', 'bank') then
++    raise exception 'bad_method';
++  end if;
++
++  -- Enforce single pending cashout limit to protect founder manual payouts
++  if exists (
++    select 1 from public.cashout_requests
++    where user_id = p_user_id and status = 'pending'
++  ) then
++    raise exception 'pending_cashout_exists';
++  end if;
++
++  -- Recompute current available balance strictly within transaction lock
++  select coalesce(sum(amount_coins), 0)::integer into v_available
++  from public.ledger_entries
++  where user_id = p_user_id and state = 'available';
++
++  if v_available < p_coins then
++    raise exception 'insufficient_coins';
++  end if;
++
++  v_paisa := p_coins;
++
++  -- Reserve the coins immediately with collision-free UUID source_id
++  insert into public.ledger_entries (user_id, amount_coins, state, source_type, source_id, metadata)
++  values (
++    p_user_id,
++    -p_coins,
++    'available',
++    'cashout',
++    'cashout:' || gen_random_uuid(),
++    jsonb_build_object(
++      'method', p_method,
++      'account_title', p_account_title,
++      'account_number', p_account_number
++    )
++  );
++
++  insert into public.cashout_requests (
++    user_id,
++    coins,
++    rupees_paisa,
++    method,
++    account_title,
++    account_number,
++    status
++  )
++  values (
++    p_user_id,
++    p_coins,
++    v_paisa,
++    p_method,
++    p_account_title,
++    p_account_number,
++    'pending'
++  )
++  returning id into v_request_id;
++
++  return v_request_id;
++end;
++$$;
++
++-- 2. Concurrency guard for physical store redemptions
++create or replace function public.redeem_product(
++  p_user_id uuid,
++  p_product_id uuid,
++  p_shipping_address jsonb,
++  p_contact_phone text
++)
++returns uuid
++language plpgsql
++security definer
++set search_path = public
++as $$
++declare
++  v_available integer;
++  v_price integer;
++  v_stock integer;
++  v_redemption_id uuid;
++begin
++  -- Concurrency guard
++  perform pg_advisory_xact_lock(hashtext(p_user_id::text));
++
++  select price_coins, stock into v_price, v_stock
++  from public.products
++  where id = p_product_id and is_active = true;
++
++  if not found then
++    raise exception 'product_not_found';
++  end if;
++
++  if v_stock <= 0 then
++    raise exception 'out_of_stock';
++  end if;
++
++  select coalesce(sum(amount_coins), 0)::integer into v_available
++  from public.ledger_entries
++  where user_id = p_user_id and state = 'available';
++
++  if v_available < v_price then
++    raise exception 'insufficient_coins';
++  end if;
++
++  update public.products
++  set stock = stock - 1
++  where id = p_product_id;
++
++  insert into public.ledger_entries (user_id, amount_coins, state, source_type, source_id)
++  values (p_user_id, -v_price, 'available', 'product_redemption', 'redemption:' || gen_random_uuid());
++
++  insert into public.redemptions (user_id, product_id, coins_spent, shipping_address, contact_phone)
++  values (p_user_id, p_product_id, v_price, p_shipping_address, p_contact_phone)
++  returning id into v_redemption_id;
++
++  return v_redemption_id;
++end;
++$$;
++
++-- 3. Sybil Account Detection View for Founder Dashboard
++create or replace view public.view_sybil_wallet_alerts as
++select
++  account_number,
++  method,
++  count(distinct user_id) as linked_accounts_count,
++  array_agg(distinct user_id) as linked_user_ids,
++  sum(coins) as total_coins_requested,
++  max(created_at) as last_request_at
++from public.cashout_requests
++group by account_number, method
++having count(distinct user_id) > 1;
++
++grant select on public.view_sybil_wallet_alerts to authenticated;
+-- 
+2.34.1
+
